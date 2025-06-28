@@ -1,14 +1,9 @@
-const CACHE_NAME = 'suas-app-cache-v2'; // Versão incrementada para forçar a atualização
+const CACHE_NAME = 'suas-app-cache-v3'; // Versão incrementada para forçar a atualização
 const urlsToCache = [
   './', // O '.' é importante para o GitHub Pages
   './index.html',
-  './manifest.json',
-  // Os links para CDNs foram removidos para evitar erros de CORS.
-  // A aplicação irá buscá-los na rede, o que é fiável quando online.
-  
-  // Ícones (certifique-se de que estes caminhos estão corretos no seu repositório)
-  './icons/icon-192x192.png',
-  './icons/icon-512x512.png'
+  './manifest.json'
+  // Linhas dos ícones removidas para garantir que a cache seja criada com sucesso.
 ];
 
 // Evento de Instalação: guarda os ficheiros essenciais em cache
