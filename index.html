@@ -1,0 +1,2309 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SUAS App - Gestão de Atendimentos</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Leaflet.js for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    
+    <!-- Chart.js for Dashboards -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+    <!-- SheetJS (xlsx) for Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#10B981">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+
+    <style>
+        /* Estilos personalizados para complementar o Tailwind */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+
+        /* Animação para o spinner de carregamento */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #10B981;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        /* Estilos para as notificações "Toast" */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s, bottom 0.5s;
+        }
+        .toast.show {
+            opacity: 1;
+            bottom: 40px;
+        }
+        .toast.success { background-color: #10B981; }
+        .toast.error { background-color: #EF4444; }
+        .toast.info { background-color: #3B82F6; }
+
+        /* Estilo para abas ativas */
+        .nav-link.active {
+            background-color: #059669;
+            color: white;
+        }
+
+        /* Estilos para o chat */
+        .chat-bubble-sent {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+        }
+        .chat-bubble-received {
+            background-color: #ffffff;
+            align-self: flex-start;
+        }
+        
+        /* Validação de senha */
+        .password-req {
+            transition: all 0.2s ease-in-out;
+        }
+        .password-req.valid {
+            color: #10B981;
+        }
+        .password-req.invalid {
+            color: #EF4444;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <!-- Container principal da aplicação -->
+    <div id="app">
+        <!-- Spinner de carregamento inicial -->
+        <div id="initial-loading" class="flex items-center justify-center h-screen">
+            <div class="spinner"></div>
+        </div>
+    </div>
+    
+    <!-- Container para notificações toast -->
+    <div id="toast-container"></div>
+
+    <!-- Modal genérico -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div id="modal-content" class="bg-white rounded-lg shadow-xl w-11/12 md:w-2/3 lg:w-1/2 max-h-[90vh] overflow-y-auto">
+            <!-- O conteúdo do modal será injetado aqui pelo JavaScript -->
+        </div>
+    </div>
+
+
+    <script type="module">
+        // ===================================================================================
+        // FIREBASE SDK IMPORTS
+        // ===================================================================================
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            onAuthStateChanged, 
+            signOut,
+            signInWithEmailAndPassword,
+            createUserWithEmailAndPassword,
+            sendPasswordResetEmail,
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore,
+            doc,
+            setDoc,
+            getDoc,
+            getDocs,
+            collection,
+            onSnapshot,
+            addDoc,
+            updateDoc,
+            query,
+            where,
+            Timestamp,
+            writeBatch,
+            serverTimestamp
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
+
+        // ===================================================================================
+        // CONFIGURAÇÃO DO FIREBASE (NÃO ALTERAR)
+        // ===================================================================================
+        // As variáveis __firebase_config e __initial_auth_token serão fornecidas pelo ambiente.
+        const firebaseConfig = {
+  apiKey: "AIzaSyCTXfhBbiXtOYtWnketVqk3mXdCHgpv0mY",
+  authDomain: "suas-app-ga.firebaseapp.com",
+  projectId: "suas-app-ga",
+  storageBucket: "suas-app-ga.firebasestorage.app",
+  messagingSenderId: "177346448162",
+  appId: "1:177346448162:web:22b8b16a6821bc46c3b37b",
+  measurementId: "G-VQD21MKWNE"
+};
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const functions = getFunctions(app);
+
+        // ===================================================================================
+        // ESTADO GLOBAL DA APLICAÇÃO (Single Source of Truth)
+        // ===================================================================================
+        const AppState = {
+            currentUser: null,
+            userProfile: null,
+            isAuthReady: false,
+            currentPage: '',
+            allUsers: [],
+            allAttendances: [],
+            familiesData: new Map(), // Para dados do Cadastro Único
+            activeSubscriptions: [], // Para gerir listeners do Firestore
+            inactivityTimer: null,
+            draftSaveTimer: null,
+        };
+        
+        // ===================================================================================
+        // MÓDULO DE UTILITÁRIOS (Utils)
+        // Funções genéricas usadas em toda a aplicação.
+        // ===================================================================================
+        const Utils = {
+            // Exibe uma notificação toast
+            showToast(message, type = 'info', duration = 3000) {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                toast.textContent = message;
+                container.appendChild(toast);
+
+                // Força o reflow para a animação funcionar
+                requestAnimationFrame(() => {
+                    toast.classList.add('show');
+                });
+
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => container.removeChild(toast), 500);
+                }, duration);
+            },
+
+            // Formata datas
+            formatDate(timestamp) {
+                if (!timestamp) return 'N/A';
+                const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+                return date.toLocaleDateString('pt-BR', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            },
+            
+            // Abre um modal com conteúdo dinâmico
+            openModal(content) {
+                const modalContainer = document.getElementById('modal-container');
+                const modalContent = document.getElementById('modal-content');
+                modalContent.innerHTML = content;
+                modalContainer.classList.remove('hidden');
+                modalContainer.classList.add('flex');
+            },
+
+            // Fecha o modal
+            closeModal() {
+                const modalContainer = document.getElementById('modal-container');
+                modalContainer.classList.add('hidden');
+                modalContainer.classList.remove('flex');
+                document.getElementById('modal-content').innerHTML = '';
+            },
+            
+            // Gera um crachá de status
+            getStatusBadge(status) {
+                switch (status) {
+                    case 'Em Aberto':
+                        return `<span class="bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Em Aberto</span>`;
+                    case 'Encaminhado':
+                        return `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Encaminhado</span>`;
+                    case 'Finalizado':
+                        return `<span class="bg-green-100 text-green-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Finalizado</span>`;
+                    case 'Retornado':
+                        return `<span class="bg-purple-100 text-purple-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Retornado</span>`;
+                    default:
+                        return `<span class="bg-gray-100 text-gray-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">${status || 'N/A'}</span>`;
+                }
+            },
+
+            // Gera o HTML para um spinner
+            renderSpinner() {
+                return `<div class="flex justify-center items-center p-8"><div class="spinner"></div></div>`;
+            }
+        };
+        
+        // Fechar modal ao clicar fora
+        document.getElementById('modal-container').addEventListener('click', (e) => {
+            if (e.target.id === 'modal-container') {
+                Utils.closeModal();
+            }
+        });
+
+
+        // ===================================================================================
+        // MÓDULO DE SERVIÇOS DO FIREBASE (FirebaseService)
+        // Centraliza toda a comunicação com o backend.
+        // ===================================================================================
+        const FirebaseService = {
+            // Busca o perfil de um utilizador
+            async getUserProfile(uid) {
+                const docRef = doc(db, "users", uid);
+                const docSnap = await getDoc(docRef);
+                return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+            },
+
+            // Verifica se existe um administrador
+            async adminExists() {
+                const q = query(collection(db, "users"), where("role", "==", "admin"));
+                const querySnapshot = await getDocs(q);
+                return !querySnapshot.empty;
+            },
+            
+            // Adiciona um novo atendimento
+            async addAttendance(data) {
+                const user = AppState.userProfile;
+                const attendanceData = {
+                    ...data,
+                    authorId: user.id,
+                    authorName: user.name,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                    status: 'Em Aberto',
+                    encaminhadoPara: null,
+                    participantes: [user.id],
+                    history: [{
+                        action: 'Criação',
+                        user: user.name,
+                        userId: user.id,
+                        timestamp: Timestamp.now(),
+                        details: 'Atendimento criado.'
+                    }]
+                };
+                await addDoc(collection(db, "attendances"), attendanceData);
+            },
+            
+            // Atualiza um atendimento existente
+            async updateAttendance(id, data, historyLog) {
+                const user = AppState.userProfile;
+                const docRef = doc(db, "attendances", id);
+                const currentDoc = await getDoc(docRef);
+                const currentHistory = currentDoc.data().history || [];
+                
+                const newHistoryEntry = {
+                    ...historyLog,
+                    user: user.name,
+                    userId: user.id,
+                    timestamp: Timestamp.now()
+                };
+
+                await updateDoc(docRef, {
+                    ...data,
+                    updatedAt: serverTimestamp(),
+                    history: [...currentHistory, newHistoryEntry]
+                });
+            },
+            
+            // Chama a Cloud Function para criar um novo utilizador
+            async createNewUser(userData) {
+                try {
+                    const createNewUserFunction = httpsCallable(functions, 'createNewUser');
+                    const result = await createNewUserFunction(userData);
+                    if(result.data.success) {
+                        Utils.showToast('Utilizador criado com sucesso!', 'success');
+                    } else {
+                        throw new Error(result.data.error || 'Erro desconhecido ao criar utilizador.');
+                    }
+                } catch(error) {
+                    console.error("Erro ao chamar a Cloud Function 'createNewUser': ", error);
+                    Utils.showToast(error.message, 'error');
+                }
+            },
+            
+            // Altera o estado (ativo/inativo) de um utilizador
+            async setUserDisabledStatus(uid, disabled) {
+                const userRef = doc(db, "users", uid);
+                await updateDoc(userRef, { disabled });
+                Utils.showToast(`Utilizador ${disabled ? 'desativado' : 'reativado'} com sucesso.`, 'success');
+            },
+            
+            // Importa famílias do Cadastro Único (CSV)
+            async importFamiliesFromCSV(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        try {
+                            const lines = event.target.result.split('\n').filter(line => line.trim() !== '');
+                            if (lines.length <= 1) {
+                                throw new Error("Ficheiro CSV vazio ou sem dados.");
+                            }
+
+                            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                            const requiredHeaders = ['cpf_responsavel', 'nome_responsavel', 'data_nascimento', 'status_bolsa_familia', 'data_atualizacao_cadastral', 'endereco', 'latitude', 'longitude'];
+                            
+                            for (const h of requiredHeaders) {
+                                if (!headers.includes(h)) {
+                                    throw new Error(`Coluna obrigatória em falta no CSV: ${h}`);
+                                }
+                            }
+
+                            const batch = writeBatch(db);
+                            let count = 0;
+                            for (let i = 1; i < lines.length; i++) {
+                                const values = lines[i].split(',').map(v => v.trim());
+                                const familyData = headers.reduce((obj, header, index) => {
+                                    obj[header] = values[index] || '';
+                                    return obj;
+                                }, {});
+
+                                // A chave do documento será o CPF para fácil consulta
+                                const docId = familyData.cpf_responsavel.replace(/\D/g, ''); 
+                                if (docId) {
+                                    const docRef = doc(db, "families", docId);
+                                    batch.set(docRef, familyData);
+                                    count++;
+                                }
+                            }
+                            
+                            await batch.commit();
+                            Utils.showToast(`${count} famílias importadas com sucesso!`, 'success');
+                            resolve();
+
+                        } catch (error) {
+                            Utils.showToast(`Erro ao processar CSV: ${error.message}`, 'error');
+                            console.error("Erro no CSV:", error);
+                            reject(error);
+                        }
+                    };
+                    reader.readAsText(file);
+                });
+            },
+            
+            // Busca dados de uma família pelo CPF
+            async getFamilyByCPF(cpf) {
+                const cleanCPF = cpf.replace(/\D/g, '');
+                if (!cleanCPF) return null;
+                const docRef = doc(db, "families", cleanCPF);
+                const docSnap = await getDoc(docRef);
+                return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+            },
+            
+            // Envia uma mensagem no chat
+            async sendChatMessage(roomId, text) {
+                const user = AppState.userProfile;
+                const roomRef = doc(db, "chatRooms", roomId);
+                const messagesCol = collection(roomRef, "messages");
+                
+                await addDoc(messagesCol, {
+                    text: text,
+                    senderId: user.id,
+                    senderName: user.name,
+                    timestamp: serverTimestamp()
+                });
+                
+                // Atualiza a última mensagem na sala para preview
+                await updateDoc(roomRef, {
+                    lastMessage: text,
+                    lastMessageTimestamp: serverTimestamp()
+                });
+            },
+            
+            // Cria uma nova sala de chat
+            async createChatRoom(targetUser) {
+                const currentUser = AppState.userProfile;
+                const members = [currentUser.id, targetUser.id].sort();
+                const roomId = members.join('_');
+                
+                const roomRef = doc(db, "chatRooms", roomId);
+                const roomSnap = await getDoc(roomRef);
+
+                if (!roomSnap.exists()) {
+                    await setDoc(roomRef, {
+                        participants: members,
+                        participantNames: {
+                            [currentUser.id]: currentUser.name,
+                            [targetUser.id]: targetUser.name
+                        },
+                        createdAt: serverTimestamp(),
+                        lastMessage: "Conversa iniciada.",
+                        lastMessageTimestamp: serverTimestamp()
+                    });
+                }
+                return roomId;
+            }
+        };
+
+        // ===================================================================================
+        // MÓDULOS DE COMPONENTES DE PÁGINA
+        // Cada objeto representa uma "página" ou "vista" da aplicação.
+        // ===================================================================================
+
+        // -----------------------------------------------------------------------------------
+        // Página de Login
+        // -----------------------------------------------------------------------------------
+        const LoginPage = {
+            async render() {
+                const isAdminCreated = await FirebaseService.adminExists();
+                return `
+                    <div class="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
+                            <div class="text-center mb-8">
+                                <i class="fas fa-hands-helping text-5xl text-emerald-500"></i>
+                                <h1 class="text-3xl font-bold text-gray-800 mt-4">SUAS App</h1>
+                                <p class="text-gray-500">Gestão Integrada de Atendimentos</p>
+                            </div>
+                            <form id="login-form">
+                                <div class="mb-4">
+                                    <label for="email" class="block text-gray-700 text-sm font-bold mb-2">Email</label>
+                                    <input type="email" id="email" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-emerald-500" required>
+                                </div>
+                                <div class="mb-6">
+                                    <label for="password" class="block text-gray-700 text-sm font-bold mb-2">Senha</label>
+                                    <input type="password" id="password" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:ring-2 focus:ring-emerald-500" required>
+                                </div>
+                                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">
+                                    Entrar
+                                </button>
+                            </form>
+                            <div class="mt-4 text-center">
+                                <a href="#forgot-password" id="forgot-password-link" class="text-sm text-emerald-600 hover:text-emerald-800">Esqueceu a senha?</a>
+                            </div>
+                            ${!isAdminCreated ? `
+                            <div class="mt-4 text-center">
+                                <p class="text-sm text-gray-600">Primeiro acesso? 
+                                    <a href="#register-admin" id="register-admin-link" class="font-bold text-emerald-600 hover:text-emerald-800">Cadastre-se como Administrador</a>
+                                </p>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            },
+            attachEvents() {
+                const form = document.getElementById('login-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const email = document.getElementById('email').value;
+                        const password = document.getElementById('password').value;
+                        try {
+                            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                            const userProfile = await FirebaseService.getUserProfile(userCredential.user.uid);
+                            if (userProfile && userProfile.disabled) {
+                                await signOut(auth);
+                                Utils.showToast('A sua conta está desativada. Contacte o administrador.', 'error');
+                            } else {
+                                Utils.showToast('Login bem-sucedido!', 'success');
+                                // A navegação ocorrerá pelo onAuthStateChanged
+                            }
+                        } catch (error) {
+                            Utils.showToast('Email ou senha inválidos.', 'error');
+                        }
+                    });
+                }
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Página de Registo de Admin
+        // -----------------------------------------------------------------------------------
+        const RegisterAdminPage = {
+            async render() {
+                // Medida de segurança: só renderiza se não houver admin
+                const isAdminCreated = await FirebaseService.adminExists();
+                if (isAdminCreated) {
+                    Router.navigate('#login');
+                    return Utils.renderSpinner();
+                }
+                
+                return `
+                    <div class="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
+                            <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Registo do Primeiro Administrador</h2>
+                            <form id="register-admin-form">
+                                <div class="mb-4">
+                                    <label for="name" class="block text-gray-700">Nome Completo</label>
+                                    <input type="text" id="name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="email" class="block text-gray-700">Email</label>
+                                    <input type="email" id="email" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                </div>
+                                <div class="mb-4">
+                                    <label for="password" class="block text-gray-700">Senha</label>
+                                    <input type="password" id="password" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                </div>
+                                <div id="password-requirements" class="text-sm text-gray-500 mb-4 space-y-1">
+                                    <p id="length-req" class="password-req invalid"><i class="fas fa-times-circle mr-2"></i>Pelo menos 8 caracteres</p>
+                                    <p id="upper-req" class="password-req invalid"><i class="fas fa-times-circle mr-2"></i>Pelo menos uma letra maiúscula</p>
+                                    <p id="lower-req" class="password-req invalid"><i class="fas fa-times-circle mr-2"></i>Pelo menos uma letra minúscula</p>
+                                    <p id="number-req" class="password-req invalid"><i class="fas fa-times-circle mr-2"></i>Pelo menos um número</p>
+                                    <p id="special-req" class="password-req invalid"><i class="fas fa-times-circle mr-2"></i>Pelo menos um caractere especial (!@#$...)</p>
+                                </div>
+                                <div class="mb-6">
+                                    <label for="confirm-password" class="block text-gray-700">Confirmar Senha</label>
+                                    <input type="password" id="confirm-password" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                </div>
+                                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">
+                                    Registar Administrador
+                                </button>
+                                <p class="mt-4 text-center text-sm"><a href="#login" class="text-emerald-600 hover:underline">Voltar para o Login</a></p>
+                            </form>
+                        </div>
+                    </div>
+                `;
+            },
+            attachEvents() {
+                const passwordInput = document.getElementById('password');
+                const form = document.getElementById('register-admin-form');
+
+                if (passwordInput) {
+                    passwordInput.addEventListener('input', this.validatePassword);
+                }
+
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const name = document.getElementById('name').value;
+                        const email = document.getElementById('email').value;
+                        const password = document.getElementById('password').value;
+                        const confirmPassword = document.getElementById('confirm-password').value;
+
+                        if (password !== confirmPassword) {
+                            Utils.showToast('As senhas não coincidem.', 'error');
+                            return;
+                        }
+                        
+                        if (!this.isPasswordValid(password)) {
+                             Utils.showToast('A senha não cumpre os requisitos de segurança.', 'error');
+                             return;
+                        }
+
+                        try {
+                             // Numa aplicação real, a criação do primeiro admin poderia ser um processo especial.
+                             // Aqui, usamos o fluxo padrão, mas garantimos que só acontece uma vez.
+                            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                            const uid = userCredential.user.uid;
+                            
+                            // Cria o perfil no Firestore
+                            await setDoc(doc(db, "users", uid), {
+                                name: name,
+                                email: email,
+                                role: 'admin',
+                                createdAt: serverTimestamp(),
+                                disabled: false
+                            });
+
+                            Utils.showToast('Administrador registado com sucesso! Faça login.', 'success');
+                            Router.navigate('#login');
+
+                        } catch (error) {
+                            Utils.showToast(`Erro no registo: ${error.message}`, 'error');
+                        }
+                    });
+                }
+            },
+            validatePassword() {
+                const password = document.getElementById('password').value;
+                const setValidation = (id, isValid) => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.classList.toggle('valid', isValid);
+                        el.classList.toggle('invalid', !isValid);
+                        el.querySelector('i').classList.toggle('fa-check-circle', isValid);
+                        el.querySelector('i').classList.toggle('fa-times-circle', !isValid);
+                    }
+                };
+                
+                setValidation('length-req', password.length >= 8);
+                setValidation('upper-req', /[A-Z]/.test(password));
+                setValidation('lower-req', /[a-z]/.test(password));
+                setValidation('number-req', /[0-9]/.test(password));
+                setValidation('special-req', /[^A-Za-z0-9]/.test(password));
+            },
+            isPasswordValid(password) {
+                return password.length >= 8 &&
+                       /[A-Z]/.test(password) &&
+                       /[a-z]/.test(password) &&
+                       /[0-9]/.test(password) &&
+                       /[^A-Za-z0-9]/.test(password);
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Página de Recuperação de Senha
+        // -----------------------------------------------------------------------------------
+        const ForgotPasswordPage = {
+            render() {
+                return `
+                    <div class="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
+                            <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Recuperar Senha</h2>
+                            <p class="text-center text-gray-600 mb-6">Introduza o seu email para receber um link de redefinição de senha.</p>
+                            <form id="forgot-password-form">
+                                <div class="mb-4">
+                                    <label for="email" class="block text-gray-700">Email</label>
+                                    <input type="email" id="email" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                </div>
+                                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">
+                                    Enviar Link de Recuperação
+                                </button>
+                                <p class="mt-4 text-center text-sm"><a href="#login" class="text-emerald-600 hover:underline">Voltar para o Login</a></p>
+                            </form>
+                        </div>
+                    </div>
+                `;
+            },
+            attachEvents() {
+                const form = document.getElementById('forgot-password-form');
+                if (form) {
+                    form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const email = document.getElementById('email').value;
+                        try {
+                            await sendPasswordResetEmail(auth, email);
+                            Utils.showToast('Link de recuperação enviado! Verifique o seu email.', 'success');
+                            Router.navigate('#login');
+                        } catch (error) {
+                            Utils.showToast(`Erro: ${error.message}`, 'error');
+                        }
+                    });
+                }
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Estrutura Principal da Aplicação (AppShell)
+        // -----------------------------------------------------------------------------------
+        const AppShell = {
+            render() {
+                const user = AppState.userProfile;
+                if (!user) return Utils.renderSpinner();
+                
+                const navLinks = [
+                    { id: 'welcome', icon: 'fa-home', text: 'Início', roles: ['admin', 'professional'] },
+                    { id: 'new-attendance', icon: 'fa-plus-circle', text: 'Novo Atendimento', roles: ['admin', 'professional'] },
+                    { id: 'inbox', icon: 'fa-inbox', text: 'Caixa de Entrada', roles: ['admin', 'professional'] },
+                    { id: 'my-history', icon: 'fa-history', text: 'Meu Histórico', roles: ['admin', 'professional'] },
+                    { id: 'all-attendances', icon: 'fa-folder-open', text: 'Todos Atendimentos', roles: ['admin'] },
+                    { id: 'dashboard', icon: 'fa-chart-line', text: 'Dashboard', roles: ['admin'] },
+                    { id: 'map', icon: 'fa-map-marked-alt', text: 'Mapa', roles: ['admin'] },
+                    { id: 'admin', icon: 'fa-users-cog', text: 'Administração', roles: ['admin'] },
+                    { id: 'chat', icon: 'fa-comments', text: 'Chat', roles: ['admin', 'professional'] },
+                    { id: 'useful-links', icon: 'fa-link', text: 'Links Úteis', roles: ['admin', 'professional'] },
+                ];
+
+                const visibleNavLinks = navLinks.filter(link => link.roles.includes(user.role));
+
+                return `
+                    <div class="flex h-screen bg-gray-200">
+                        <!-- Sidebar de Navegação -->
+                        <aside class="w-64 bg-gray-800 text-white flex flex-col hidden md:flex">
+                            <div class="h-20 flex items-center justify-center border-b border-gray-700">
+                                <i class="fas fa-hands-helping text-3xl text-emerald-400 mr-3"></i>
+                                <span class="text-2xl font-bold">SUAS App</span>
+                            </div>
+                            <nav class="flex-1 px-4 py-4 space-y-2">
+                                ${visibleNavLinks.map(link => `
+                                    <a href="#${link.id}" data-page="${link.id}" class="nav-link flex items-center px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                                        <i class="fas ${link.icon} w-6 text-center mr-3"></i>
+                                        <span>${link.text}</span>
+                                    </a>
+                                `).join('')}
+                            </nav>
+                            <div class="p-4 border-t border-gray-700">
+                                <p class="text-sm font-semibold">${user.name}</p>
+                                <p class="text-xs text-gray-400">${user.email}</p>
+                                <button id="logout-btn" class="w-full mt-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">
+                                    Sair
+                                </button>
+                            </div>
+                        </aside>
+
+                        <!-- Conteúdo Principal -->
+                        <div class="flex-1 flex flex-col overflow-hidden">
+                            <!-- Header (para mobile) -->
+                            <header class="bg-white shadow-md md:hidden flex justify-between items-center p-4">
+                                <h1 class="text-xl font-bold text-gray-800">SUAS App</h1>
+                                <button id="mobile-menu-btn" class="text-gray-600 focus:outline-none">
+                                    <i class="fas fa-bars text-2xl"></i>
+                                </button>
+                            </header>
+                            
+                            <!-- Conteúdo da Página -->
+                            <main id="page-content" class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-4 md:p-8">
+                                <!-- O conteúdo da página ativa será renderizado aqui -->
+                            </main>
+                        </div>
+                    </div>
+                     <!-- Menu Mobile Overlay -->
+                    <div id="mobile-menu-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden md:hidden"></div>
+                    <div id="mobile-menu" class="fixed top-0 left-0 h-full w-64 bg-gray-800 text-white transform -translate-x-full transition-transform duration-300 ease-in-out z-50 flex flex-col">
+                         <div class="h-20 flex items-center justify-between border-b border-gray-700 p-4">
+                            <span class="text-2xl font-bold">SUAS App</span>
+                            <button id="close-mobile-menu-btn" class="text-white focus:outline-none"><i class="fas fa-times text-2xl"></i></button>
+                        </div>
+                        <nav class="flex-1 px-4 py-4 space-y-2">
+                           ${visibleNavLinks.map(link => `
+                                <a href="#${link.id}" data-page="${link.id}" class="nav-link flex items-center px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                                    <i class="fas ${link.icon} w-6 text-center mr-3"></i>
+                                    <span>${link.text}</span>
+                                </a>
+                            `).join('')}
+                        </nav>
+                        <div class="p-4 border-t border-gray-700">
+                            <p class="text-sm font-semibold">${user.name}</p>
+                            <p class="text-xs text-gray-400">${user.email}</p>
+                            <button id="mobile-logout-btn" class="w-full mt-4 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline transition duration-300">
+                                Sair
+                            </button>
+                        </div>
+                    </div>
+                `;
+            },
+            attachEvents() {
+                document.getElementById('logout-btn')?.addEventListener('click', () => signOut(auth));
+                document.getElementById('mobile-logout-btn')?.addEventListener('click', () => signOut(auth));
+
+                const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+                const closeMobileMenuBtn = document.getElementById('close-mobile-menu-btn');
+                const mobileMenu = document.getElementById('mobile-menu');
+                const mobileMenuOverlay = document.getElementById('mobile-menu-overlay');
+
+                const openMenu = () => {
+                    mobileMenu.classList.remove('-translate-x-full');
+                    mobileMenuOverlay.classList.remove('hidden');
+                }
+                
+                const closeMenu = () => {
+                    mobileMenu.classList.add('-translate-x-full');
+                    mobileMenuOverlay.classList.add('hidden');
+                }
+
+                mobileMenuBtn?.addEventListener('click', openMenu);
+                closeMobileMenuBtn?.addEventListener('click', closeMenu);
+                mobileMenuOverlay?.addEventListener('click', closeMenu);
+                
+                // Fechar menu ao clicar num link
+                document.querySelectorAll('#mobile-menu .nav-link').forEach(link => {
+                    link.addEventListener('click', closeMenu);
+                });
+            }
+        };
+        
+        // -----------------------------------------------------------------------------------
+        // Dashboard de Boas-vindas
+        // -----------------------------------------------------------------------------------
+        const WelcomeDashboardPage = {
+            render() {
+                const user = AppState.userProfile;
+                const myAttendances = AppState.allAttendances.filter(a => a.authorId === user.id);
+                const myInbox = AppState.allAttendances.filter(a => a.encaminhadoPara === user.id);
+                const attendancesThisMonth = myAttendances.filter(a => a.createdAt && a.createdAt.toDate().getMonth() === new Date().getMonth()).length;
+
+                return `
+                    <div class="animate-fade-in">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-2">Bem-vindo(a), ${user.name.split(' ')[0]}!</h1>
+                        <p class="text-gray-600 mb-8">Aqui está um resumo da sua atividade na plataforma.</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <!-- Card: Atendimentos no Mês -->
+                            <div class="bg-white p-6 rounded-lg shadow-md flex items-center">
+                                <div class="bg-blue-100 p-4 rounded-full mr-4">
+                                    <i class="fas fa-calendar-alt text-3xl text-blue-500"></i>
+                                </div>
+                                <div>
+                                    <p class="text-gray-500 text-sm">Atendimentos este Mês</p>
+                                    <p class="text-3xl font-bold text-gray-800">${attendancesThisMonth}</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Card: Casos na Caixa de Entrada -->
+                            <div class="bg-white p-6 rounded-lg shadow-md flex items-center">
+                                <div class="bg-yellow-100 p-4 rounded-full mr-4">
+                                    <i class="fas fa-inbox text-3xl text-yellow-500"></i>
+                                </div>
+                                <div>
+                                    <p class="text-gray-500 text-sm">Casos na Caixa de Entrada</p>
+                                    <p class="text-3xl font-bold text-gray-800">${myInbox.length}</p>
+                                </div>
+                            </div>
+
+                            <!-- Card: Total de Atendimentos Registados -->
+                            <div class="bg-white p-6 rounded-lg shadow-md flex items-center">
+                                <div class="bg-green-100 p-4 rounded-full mr-4">
+                                    <i class="fas fa-file-alt text-3xl text-green-500"></i>
+                                </div>
+                                <div>
+                                    <p class="text-gray-500 text-sm">Total de Atendimentos Registados</p>
+                                    <p class="text-3xl font-bold text-gray-800">${myAttendances.length}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-8 bg-white p-6 rounded-lg shadow-md">
+                            <h2 class="text-xl font-bold text-gray-700 mb-4">Ações Rápidas</h2>
+                            <div class="flex flex-wrap gap-4">
+                                <a href="#new-attendance" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-5 rounded-lg transition duration-300 flex items-center">
+                                    <i class="fas fa-plus mr-2"></i> Novo Atendimento
+                                </a>
+                                <a href="#inbox" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-5 rounded-lg transition duration-300 flex items-center">
+                                    <i class="fas fa-inbox mr-2"></i> Ver Caixa de Entrada
+                                </a>
+                                <a href="#my-history" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-5 rounded-lg transition duration-300 flex items-center">
+                                    <i class="fas fa-history mr-2"></i> Ver Meu Histórico
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+            attachEvents() {
+                // Nenhum evento específico para esta página, a navegação é tratada pelo router.
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Página de Novo Atendimento
+        // -----------------------------------------------------------------------------------
+        const NewAttendancePage = {
+            services: {
+                "Proteção Social Básica (PSB)": ["Serviço de Convivência e Fortalecimento de Vínculos (SCFV)", "PAIF (Serviço de Proteção e Atendimento Integral à Família)", "Cadastro Único / Bolsa Família", "Benefício de Prestação Continuada (BPC)", "Outros (PSB)"],
+                "Proteção Social Especial (PSE) - Média Complexidade": ["PAEFI (Serviço de Proteção e Atendimento Especializado a Famílias e Indivíduos)", "Serviço para Pessoas com Deficiência e Idosas", "Serviço de Medidas Socioeducativas (LA/PSC)", "Abordagem Social", "Outros (PSE Média)"],
+                "Proteção Social Especial (PSE) - Alta Complexidade": ["Acolhimento Institucional", "Acolhimento Familiar", "República", "Casa de Passagem", "Outros (PSE Alta)"]
+            },
+            render(draft = null) {
+                return `
+                    <div class="bg-white p-8 rounded-lg shadow-md max-w-4xl mx-auto">
+                        <h1 class="text-2xl font-bold text-gray-800 mb-6">Registo de Novo Atendimento</h1>
+                        
+                        <!-- Etapa 1: Verificação de CPF -->
+                        <div id="cpf-check-step">
+                             <h2 class="text-lg font-semibold text-gray-700 mb-2">1. Verificação de Vínculo Familiar (Cadastro Único)</h2>
+                             <p class="text-sm text-gray-600 mb-4">Introduza o CPF do responsável familiar para verificar se a família já está registada no Cadastro Único importado.</p>
+                             <div class="flex items-center gap-4">
+                                <input type="text" id="cpf-input" placeholder="Digite o CPF do responsável" class="flex-grow p-2 border rounded-md focus:ring-2 focus:ring-emerald-500">
+                                <button id="check-cpf-btn" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Verificar</button>
+                             </div>
+                             <div id="cpf-result" class="mt-4"></div>
+                             <button id="skip-cpf-btn" class="mt-4 text-sm text-gray-500 hover:underline">Ou clique aqui para registar sem vínculo.</button>
+                        </div>
+                        
+                        <!-- Etapa 2: Formulário de Atendimento -->
+                        <form id="attendance-form" class="hidden mt-6">
+                            <h2 class="text-lg font-semibold text-gray-700 mb-4">2. Detalhes do Atendimento</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label for="family-name" class="block text-gray-700">Nome da Família/Indivíduo</label>
+                                    <input type="text" id="family-name" value="${draft?.familyName || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                </div>
+                                <div>
+                                    <label for="attendance-date" class="block text-gray-700">Data do Atendimento</label>
+                                    <input type="datetime-local" id="attendance-date" value="${draft?.attendanceDate || new Date().toISOString().slice(0, 16)}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                </div>
+                                <div>
+                                    <label for="service-category" class="block text-gray-700">Categoria do Serviço</label>
+                                    <select id="service-category" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                        <option value="">Selecione uma categoria</option>
+                                        ${Object.keys(this.services).map(cat => `<option value="${cat}" ${draft?.serviceCategory === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="service-type" class="block text-gray-700">Tipo de Serviço</label>
+                                    <select id="service-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>
+                                        <option value="">Selecione primeiro a categoria</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mt-6">
+                                <label for="observations" class="block text-gray-700">Observações / Descrição do Atendimento</label>
+                                <textarea id="observations" rows="6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500" required>${draft?.observations || ''}</textarea>
+                            </div>
+                            <div class="mt-6 flex justify-end gap-4">
+                                <button type="button" id="clear-form-btn" class="bg-gray-300 text-gray-800 px-6 py-2 rounded-md hover:bg-gray-400">Limpar</button>
+                                <button type="submit" class="bg-emerald-500 text-white px-6 py-2 rounded-md hover:bg-emerald-600">Registar Atendimento</button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+            },
+            attachEvents() {
+                // Event listeners para a verificação de CPF
+                document.getElementById('check-cpf-btn').addEventListener('click', this.handleCpfCheck);
+                document.getElementById('skip-cpf-btn').addEventListener('click', () => this.showAttendanceForm());
+
+                // Event listener para popular os serviços
+                const categorySelect = document.getElementById('service-category');
+                categorySelect.addEventListener('change', (e) => this.populateServices(e.target.value));
+                
+                // Event listener do formulário principal
+                const form = document.getElementById('attendance-form');
+                form.addEventListener('submit', this.handleSubmit);
+                
+                document.getElementById('clear-form-btn').addEventListener('click', () => {
+                    form.reset();
+                    document.getElementById('service-type').innerHTML = '<option value="">Selecione primeiro a categoria</option>';
+                    localStorage.removeItem('attendanceDraft');
+                    Utils.showToast('Formulário limpo.', 'info');
+                });
+                
+                // Salvar rascunho em caso de inatividade
+                form.addEventListener('input', () => App.resetInactivityTimers());
+                
+                // Recuperar rascunho, se existir
+                const draft = localStorage.getItem('attendanceDraft');
+                if (draft) {
+                    const parsedDraft = JSON.parse(draft);
+                    if (confirm("Encontrámos um rascunho de atendimento não guardado. Deseja restaurá-lo?")) {
+                        // Re-renderiza o componente com os dados do rascunho
+                        const contentArea = document.getElementById('page-content');
+                        contentArea.innerHTML = this.render(parsedDraft);
+                        this.attachEvents(); // Re-anexa os eventos
+                        
+                        // Garante que o formulário é exibido e os selects são populados
+                        this.showAttendanceForm();
+                        this.populateServices(parsedDraft.serviceCategory, parsedDraft.serviceType);
+
+                        Utils.showToast('Rascunho restaurado.', 'info');
+                    } else {
+                        localStorage.removeItem('attendanceDraft');
+                    }
+                }
+            },
+            
+            async handleCpfCheck() {
+                const cpfInput = document.getElementById('cpf-input');
+                const resultDiv = document.getElementById('cpf-result');
+                const cpf = cpfInput.value;
+                
+                if (!cpf) {
+                    Utils.showToast('Por favor, digite um CPF.', 'error');
+                    return;
+                }
+                
+                resultDiv.innerHTML = Utils.renderSpinner();
+                
+                const familyData = await FirebaseService.getFamilyByCPF(cpf);
+                
+                if (familyData) {
+                    const lastUpdate = new Date(familyData.data_atualizacao_cadastral);
+                    const isOutdated = (new Date() - lastUpdate) / (1000 * 60 * 60 * 24 * 365) > 2;
+
+                    resultDiv.innerHTML = `
+                        <div class="p-4 bg-green-50 border border-green-200 rounded-md">
+                            <h3 class="font-bold text-green-800">Família Encontrada!</h3>
+                            <p><strong>Responsável:</strong> ${familyData.nome_responsavel}</p>
+                            <p><strong>Status Bolsa Família:</strong> ${familyData.status_bolsa_familia}</p>
+                            ${isOutdated ? `<p class="mt-2 p-2 bg-yellow-100 text-yellow-800 rounded-md"><i class="fas fa-exclamation-triangle mr-2"></i><strong>Atenção:</strong> Cadastro desatualizado há mais de 2 anos (última atualização: ${lastUpdate.toLocaleDateString('pt-BR')}). Recomenda-se encaminhamento para atualização.</p>` : ''}
+                            <button id="fill-form-btn" class="mt-4 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">Continuar e Preencher Atendimento</button>
+                        </div>
+                    `;
+                    document.getElementById('fill-form-btn').addEventListener('click', () => {
+                        this.showAttendanceForm(familyData);
+                    });
+                } else {
+                     resultDiv.innerHTML = `
+                        <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+                            <h3 class="font-bold text-yellow-800">Nenhuma família encontrada com este CPF.</h3>
+                            <p>Pode prosseguir com o registo manual.</p>
+                             <button id="manual-register-btn" class="mt-4 bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600">Registo Manual</button>
+                        </div>
+                    `;
+                    document.getElementById('manual-register-btn').addEventListener('click', () => this.showAttendanceForm());
+                }
+            },
+            
+            showAttendanceForm(familyData = null) {
+                document.getElementById('attendance-form').classList.remove('hidden');
+                document.getElementById('cpf-check-step').classList.add('hidden');
+                
+                if (familyData) {
+                    document.getElementById('family-name').value = `Família de ${familyData.nome_responsavel}`;
+                    document.getElementById('family-name').readOnly = true;
+                    document.getElementById('family-name').classList.add('bg-gray-100');
+                }
+            },
+
+            populateServices(category, selectedService = null) {
+                const serviceSelect = document.getElementById('service-type');
+                const servicesForCategory = this.services[category] || [];
+                serviceSelect.innerHTML = '<option value="">Selecione um serviço</option>';
+                servicesForCategory.forEach(service => {
+                    const option = document.createElement('option');
+                    option.value = service;
+                    option.textContent = service;
+                    if (service === selectedService) {
+                        option.selected = true;
+                    }
+                    serviceSelect.appendChild(option);
+                });
+            },
+
+            async handleSubmit(e) {
+                e.preventDefault();
+                const data = {
+                    familyName: document.getElementById('family-name').value,
+                    attendanceDate: Timestamp.fromDate(new Date(document.getElementById('attendance-date').value)),
+                    serviceCategory: document.getElementById('service-category').value,
+                    serviceType: document.getElementById('service-type').value,
+                    observations: document.getElementById('observations').value,
+                };
+
+                try {
+                    await FirebaseService.addAttendance(data);
+                    Utils.showToast('Atendimento registado com sucesso!', 'success');
+                    localStorage.removeItem('attendanceDraft');
+                    document.getElementById('attendance-form').reset();
+                    Router.navigate('#my-history');
+                } catch (error) {
+                    Utils.showToast('Erro ao registar atendimento.', 'error');
+                    console.error(error);
+                }
+            },
+            
+            saveDraft() {
+                const form = document.getElementById('attendance-form');
+                if (!form || form.classList.contains('hidden')) return;
+
+                const familyNameInput = document.getElementById('family-name');
+                if (!familyNameInput || !familyNameInput.value.trim()) return; // Não guarda rascunho vazio
+
+                const draft = {
+                    familyName: familyNameInput.value,
+                    attendanceDate: document.getElementById('attendance-date').value,
+                    serviceCategory: document.getElementById('service-category').value,
+                    serviceType: document.getElementById('service-type').value,
+                    observations: document.getElementById('observations').value,
+                };
+                localStorage.setItem('attendanceDraft', JSON.stringify(draft));
+                Utils.showToast('Rascunho do atendimento guardado automaticamente.', 'info');
+            }
+        };
+        
+        // -----------------------------------------------------------------------------------
+        // Módulo para gerir e exibir listas de atendimentos
+        // -----------------------------------------------------------------------------------
+        const AttendanceListPage = {
+            render(title, attendances, showAuthor = false, showResponsible = false) {
+                 return `
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                            <h1 class="text-2xl font-bold text-gray-800">${title} (${attendances.length})</h1>
+                            <div class="relative w-full md:w-1/3">
+                                <input type="text" id="search-input" placeholder="Pesquisar por nome..." class="w-full p-2 pl-10 border rounded-md">
+                                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left text-gray-500">
+                                <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-6 py-3">Família/Indivíduo</th>
+                                        <th scope="col" class="px-6 py-3">Data</th>
+                                        <th scope="col" class="px-6 py-3">Serviço</th>
+                                        ${showAuthor ? '<th scope="col" class="px-6 py-3">Autor</th>' : ''}
+                                        ${showResponsible ? '<th scope="col" class="px-6 py-3">Responsável Atual</th>' : ''}
+                                        <th scope="col" class="px-6 py-3">Status</th>
+                                        <th scope="col" class="px-6 py-3">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="attendance-list-body">
+                                    ${this.renderTableRows(attendances, showAuthor, showResponsible)}
+                                </tbody>
+                            </table>
+                        </div>
+                        ${attendances.length === 0 ? '<p class="text-center text-gray-500 mt-8">Nenhum atendimento encontrado.</p>' : ''}
+                    </div>
+                `;
+            },
+            
+            renderTableRows(attendances, showAuthor, showResponsible) {
+                return attendances.map(att => `
+                    <tr class="bg-white border-b hover:bg-gray-50">
+                        <td class="px-6 py-4 font-medium text-gray-900">${att.familyName}</td>
+                        <td class="px-6 py-4">${Utils.formatDate(att.attendanceDate)}</td>
+                        <td class="px-6 py-4">${att.serviceType}</td>
+                         ${showAuthor ? `<td class="px-6 py-4">${att.authorName}</td>` : ''}
+                         ${showResponsible ? `<td class="px-6 py-4">${att.encaminhadoPara ? AppState.allUsers.find(u => u.id === att.encaminhadoPara)?.name || 'N/A' : att.authorName}</td>` : ''}
+                        <td class="px-6 py-4">${Utils.getStatusBadge(att.status)}</td>
+                        <td class="px-6 py-4">
+                            <button data-id="${att.id}" class="view-attendance-btn text-emerald-600 hover:text-emerald-800">
+                                <i class="fas fa-eye mr-1"></i> Detalhes
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            },
+
+            attachEvents(attendances, title, showAuthor, showResponsible) {
+                document.querySelectorAll('.view-attendance-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const id = e.currentTarget.dataset.id;
+                        this.showAttendanceModal(id);
+                    });
+                });
+                
+                const searchInput = document.getElementById('search-input');
+                searchInput.addEventListener('input', (e) => {
+                    const searchTerm = e.target.value.toLowerCase();
+                    const filtered = attendances.filter(att => att.familyName.toLowerCase().includes(searchTerm));
+                    document.getElementById('attendance-list-body').innerHTML = this.renderTableRows(filtered, showAuthor, showResponsible);
+                });
+            },
+            
+            showAttendanceModal(id) {
+                const attendance = AppState.allAttendances.find(a => a.id === id);
+                if (!attendance) {
+                    Utils.showToast("Atendimento não encontrado.", "error");
+                    return;
+                }
+                const user = AppState.userProfile;
+                const canEdit = attendance.authorId === user.id || user.role === 'admin';
+                const isResponsible = attendance.encaminhadoPara === user.id;
+
+                const modalContent = `
+                    <div class="p-6">
+                        <div class="flex justify-between items-start">
+                             <h2 class="text-2xl font-bold text-gray-800 mb-4">Detalhes do Atendimento</h2>
+                             <button onclick="document.getElementById('modal-container').classList.add('hidden')" class="text-gray-500 hover:text-gray-800">&times;</button>
+                        </div>
+                       
+                        <!-- Abas -->
+                        <div class="border-b border-gray-200 mb-4">
+                            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                                <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-emerald-500 text-emerald-600" data-tab="details">Detalhes</button>
+                                <button class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-tab="history">Histórico</button>
+                            </nav>
+                        </div>
+
+                        <!-- Conteúdo da Aba Detalhes -->
+                        <div id="details-tab-content">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+                                <p><strong>Família/Indivíduo:</strong> <span id="modal-family-name">${attendance.familyName}</span></p>
+                                <p><strong>Data:</strong> ${Utils.formatDate(attendance.attendanceDate)}</p>
+                                <p><strong>Categoria:</strong> ${attendance.serviceCategory}</p>
+                                <p><strong>Serviço:</strong> ${attendance.serviceType}</p>
+                                <p><strong>Autor:</strong> ${attendance.authorName}</p>
+                                <p><strong>Responsável Atual:</strong> ${attendance.encaminhadoPara ? AppState.allUsers.find(u => u.id === attendance.encaminhadoPara)?.name || 'N/A' : attendance.authorName}</p>
+                                <p><strong>Status:</strong> ${Utils.getStatusBadge(attendance.status)}</p>
+                            </div>
+                            <div class="mt-4">
+                                <strong>Observações:</strong>
+                                <p id="modal-observations" class="mt-1 p-2 bg-gray-50 rounded-md border whitespace-pre-wrap">${attendance.observations}</p>
+                            </div>
+                            
+                            <!-- Botões de Ação -->
+                            <div class="mt-6 border-t pt-4 flex flex-wrap gap-3 justify-end">
+                                ${canEdit ? `<button id="edit-attendance-btn" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">Editar</button>` : ''}
+                                ${isResponsible || canEdit ? `
+                                    <button id="forward-attendance-btn" class="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600">Encaminhar</button>
+                                ` : ''}
+                                ${isResponsible ? `
+                                    <button id="return-attendance-btn" class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600">Devolver</button>
+                                ` : ''}
+                                 <button id="close-modal-btn" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600">Fechar</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Conteúdo da Aba Histórico -->
+                        <div id="history-tab-content" class="hidden">
+                             <ul class="space-y-4">
+                                ${attendance.history.slice().reverse().map(item => `
+                                    <li class="flex gap-4">
+                                        <div class="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-gray-200 rounded-full">
+                                           <i class="fas fa-history text-gray-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-semibold text-gray-800">${item.action} por ${item.user}</p>
+                                            <p class="text-sm text-gray-600">${item.details}</p>
+                                            <p class="text-xs text-gray-400">${Utils.formatDate(item.timestamp)}</p>
+                                        </div>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+                Utils.openModal(modalContent);
+                this.attachModalEvents(attendance);
+            },
+            
+            attachModalEvents(attendance) {
+                document.getElementById('close-modal-btn').addEventListener('click', Utils.closeModal);
+                document.getElementById('edit-attendance-btn')?.addEventListener('click', () => this.showEditForm(attendance));
+                document.getElementById('forward-attendance-btn')?.addEventListener('click', () => this.showForwardForm(attendance));
+                document.getElementById('return-attendance-btn')?.addEventListener('click', () => this.handleReturn(attendance));
+
+                // Lógica das abas
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelectorAll('.tab-btn').forEach(b => {
+                            b.classList.remove('border-emerald-500', 'text-emerald-600');
+                            b.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+                        });
+                        e.target.classList.add('border-emerald-500', 'text-emerald-600');
+                        e.target.classList.remove('border-transparent', 'text-gray-500');
+                        
+                        document.getElementById('details-tab-content').classList.toggle('hidden', e.target.dataset.tab !== 'details');
+                        document.getElementById('history-tab-content').classList.toggle('hidden', e.target.dataset.tab !== 'history');
+                    });
+                });
+            },
+            
+            showEditForm(attendance) {
+                const detailsDiv = document.getElementById('details-tab-content');
+                detailsDiv.innerHTML = `
+                    <h3 class="font-bold mb-4">Editar Atendimento</h3>
+                    <form id="edit-form">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-gray-700">Nome da Família/Indivíduo</label>
+                                <input type="text" id="edit-family-name" value="${attendance.familyName}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700">Data do Atendimento</label>
+                                <input type="datetime-local" id="edit-attendance-date" value="${new Date(attendance.attendanceDate.toDate().getTime() - (attendance.attendanceDate.toDate().getTimezoneOffset() * 60000)).toISOString().slice(0, 16)}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <label class="block text-gray-700">Observações</label>
+                            <textarea id="edit-observations" rows="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>${attendance.observations}</textarea>
+                        </div>
+                        <div class="mt-6 flex justify-end gap-3">
+                            <button type="button" id="cancel-edit-btn" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-md">Cancelar</button>
+                            <button type="submit" class="bg-emerald-500 text-white px-4 py-2 rounded-md">Guardar Alterações</button>
+                        </div>
+                    </form>
+                `;
+                
+                document.getElementById('cancel-edit-btn').addEventListener('click', () => {
+                     Utils.closeModal();
+                     this.showAttendanceModal(attendance.id);
+                });
+                
+                document.getElementById('edit-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const updatedData = {
+                        familyName: document.getElementById('edit-family-name').value,
+                        attendanceDate: Timestamp.fromDate(new Date(document.getElementById('edit-attendance-date').value)),
+                        observations: document.getElementById('edit-observations').value,
+                    };
+                    const historyLog = { action: 'Edição', details: 'Dados do atendimento foram atualizados.' };
+                    
+                    await FirebaseService.updateAttendance(attendance.id, updatedData, historyLog);
+                    Utils.showToast('Atendimento atualizado!', 'success');
+                    Utils.closeModal();
+                });
+            },
+            
+            showForwardForm(attendance) {
+                const otherUsers = AppState.allUsers.filter(u => u.id !== AppState.userProfile.id && !u.disabled);
+                const detailsDiv = document.getElementById('details-tab-content');
+                detailsDiv.innerHTML = `
+                    <h3 class="font-bold mb-4">Encaminhar Atendimento</h3>
+                    <form id="forward-form">
+                        <div class="mb-4">
+                            <label for="forward-to-user" class="block text-gray-700">Encaminhar para:</label>
+                            <select id="forward-to-user" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                                <option value="">Selecione um profissional</option>
+                                ${otherUsers.map(u => `<option value="${u.id}">${u.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label for="forward-reason" class="block text-gray-700">Motivo/Observação do Encaminhamento</label>
+                            <textarea id="forward-reason" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required></textarea>
+                        </div>
+                         <div class="mt-6 flex justify-end gap-3">
+                            <button type="button" id="cancel-forward-btn" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-md">Cancelar</button>
+                            <button type="submit" class="bg-emerald-500 text-white px-4 py-2 rounded-md">Confirmar Encaminhamento</button>
+                        </div>
+                    </form>
+                `;
+                
+                 document.getElementById('cancel-forward-btn').addEventListener('click', () => {
+                     Utils.closeModal();
+                     this.showAttendanceModal(attendance.id);
+                });
+                
+                document.getElementById('forward-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const targetUserId = document.getElementById('forward-to-user').value;
+                    const reason = document.getElementById('forward-reason').value;
+                    const targetUser = AppState.allUsers.find(u => u.id === targetUserId);
+
+                    const updatedData = {
+                        encaminhadoPara: targetUserId,
+                        status: 'Encaminhado',
+                        participantes: [...new Set([...attendance.participantes, targetUserId])] // Garante que não há duplicados
+                    };
+                    const historyLog = { action: 'Encaminhamento', details: `Encaminhado para ${targetUser.name}. Motivo: ${reason}` };
+
+                    await FirebaseService.updateAttendance(attendance.id, updatedData, historyLog);
+                    Utils.showToast('Atendimento encaminhado!', 'success');
+                    Utils.closeModal();
+                });
+            },
+
+            async handleReturn(attendance) {
+                 // Encontra quem encaminhou o caso pela última vez
+                const history = attendance.history;
+                const lastForwarder = history.slice().reverse().find(h => h.action === 'Encaminhamento');
+                
+                if (!lastForwarder) {
+                    Utils.showToast("Não foi possível determinar para quem devolver.", "error");
+                    return;
+                }
+                const returnToId = lastForwarder.userId;
+                const returnToName = lastForwarder.user;
+
+                if (confirm(`Tem a certeza que quer devolver este atendimento para ${returnToName}?`)) {
+                    const updatedData = {
+                        encaminhadoPara: returnToId,
+                        status: 'Retornado',
+                        // A lista de participantes não muda
+                    };
+                    const historyLog = {
+                        action: 'Devolução',
+                        details: `Atendimento devolvido para ${returnToName}.`
+                    };
+
+                    await FirebaseService.updateAttendance(attendance.id, updatedData, historyLog);
+                    Utils.showToast('Atendimento devolvido com sucesso!', 'success');
+                    Utils.closeModal();
+                }
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Dashboard de Admin
+        // -----------------------------------------------------------------------------------
+        const AdminDashboardPage = {
+            charts: {},
+            render() {
+                return `
+                     <div class="bg-white p-6 rounded-lg shadow-md">
+                        <h1 class="text-2xl font-bold text-gray-800 mb-6">Dashboard Administrativo</h1>
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <div class="p-4 border rounded-lg">
+                                <h2 class="font-bold text-lg mb-2">Atendimentos por Mês</h2>
+                                <canvas id="monthly-chart"></canvas>
+                            </div>
+                            <div class="p-4 border rounded-lg">
+                                <h2 class="font-bold text-lg mb-2">Atendimentos por Tipo de Serviço</h2>
+                                <canvas id="by-service-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="mt-8 border-t pt-6">
+                             <h2 class="text-xl font-bold text-gray-700 mb-4">Gerar Relatório Avançado</h2>
+                             <form id="report-form" class="flex flex-wrap items-end gap-4 p-4 bg-gray-50 rounded-lg">
+                                <div>
+                                    <label for="start-date" class="block text-sm font-medium text-gray-700">Data Início</label>
+                                    <input type="date" id="start-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                                <div>
+                                    <label for="end-date" class="block text-sm font-medium text-gray-700">Data Fim</label>
+                                    <input type="date" id="end-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                                 <div>
+                                    <label for="report-service-type" class="block text-sm font-medium text-gray-700">Tipo de Serviço</label>
+                                    <select id="report-service-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                        <option value="all">Todos os Serviços</option>
+                                        <!-- Populado dinamicamente -->
+                                    </select>
+                                </div>
+                                <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700">
+                                    <i class="fas fa-file-excel mr-2"></i>Exportar para Excel
+                                </button>
+                             </form>
+                        </div>
+                    </div>
+                `;
+            },
+            attachEvents() {
+                this.destroyCharts(); // Garante que gráficos antigos são destruídos
+                this.renderCharts();
+                
+                const reportForm = document.getElementById('report-form');
+                
+                // Popula o select de serviços para o relatório
+                const allServices = [...new Set(AppState.allAttendances.map(a => a.serviceType))];
+                const serviceSelect = document.getElementById('report-service-type');
+                allServices.forEach(s => {
+                    serviceSelect.innerHTML += `<option value="${s}">${s}</option>`;
+                });
+                
+                reportForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.generateExcelReport();
+                });
+            },
+            renderCharts() {
+                const attendances = AppState.allAttendances;
+
+                // Gráfico 1: Atendimentos por mês
+                const monthlyData = attendances.reduce((acc, att) => {
+                    if (att.createdAt) {
+                        const month = att.createdAt.toDate().toISOString().slice(0, 7); // "YYYY-MM"
+                        acc[month] = (acc[month] || 0) + 1;
+                    }
+                    return acc;
+                }, {});
+
+                const monthlyCtx = document.getElementById('monthly-chart')?.getContext('2d');
+                if(monthlyCtx) {
+                    this.charts.monthly = new Chart(monthlyCtx, {
+                        type: 'line',
+                        data: {
+                            labels: Object.keys(monthlyData).sort(),
+                            datasets: [{
+                                label: '# de Atendimentos',
+                                data: Object.values(monthlyData),
+                                backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                                borderColor: 'rgba(16, 185, 129, 1)',
+                                borderWidth: 2,
+                                tension: 0.1
+                            }]
+                        }
+                    });
+                }
+
+
+                // Gráfico 2: Atendimentos por tipo de serviço
+                const byServiceData = attendances.reduce((acc, att) => {
+                    const service = att.serviceType;
+                    acc[service] = (acc[service] || 0) + 1;
+                    return acc;
+                }, {});
+                
+                const byServiceCtx = document.getElementById('by-service-chart')?.getContext('2d');
+                if(byServiceCtx) {
+                     this.charts.byService = new Chart(byServiceCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: Object.keys(byServiceData),
+                            datasets: [{
+                                label: 'Atendimentos',
+                                data: Object.values(byServiceData),
+                                backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#6366F1'],
+                            }]
+                        }
+                    });
+                }
+            },
+            
+            destroyCharts() {
+                Object.values(this.charts).forEach(chart => {
+                    if (chart) {
+                        chart.destroy();
+                    }
+                });
+                this.charts = {};
+            },
+            
+            generateExcelReport() {
+                let filteredData = AppState.allAttendances;
+                const startDate = document.getElementById('start-date').value;
+                const endDate = document.getElementById('end-date').value;
+                const serviceType = document.getElementById('report-service-type').value;
+
+                if (startDate) {
+                    filteredData = filteredData.filter(a => a.attendanceDate.toDate() >= new Date(startDate));
+                }
+                if (endDate) {
+                    // Adiciona um dia para incluir o dia final completo
+                    const end = new Date(endDate);
+                    end.setDate(end.getDate() + 1);
+                    filteredData = filteredData.filter(a => a.attendanceDate.toDate() < end);
+                }
+                if (serviceType !== 'all') {
+                    filteredData = filteredData.filter(a => a.serviceType === serviceType);
+                }
+                
+                if (filteredData.length === 0) {
+                    Utils.showToast("Nenhum dado encontrado para os filtros selecionados.", "info");
+                    return;
+                }
+
+                const dataForExport = filteredData.map(att => ({
+                    'Nome da Família': att.familyName,
+                    'Data Atendimento': Utils.formatDate(att.attendanceDate),
+                    'Categoria Serviço': att.serviceCategory,
+                    'Tipo Serviço': att.serviceType,
+                    'Autor': att.authorName,
+                    'Responsável Atual': att.encaminhadoPara ? AppState.allUsers.find(u => u.id === att.encaminhadoPara)?.name : att.authorName,
+                    'Status': att.status,
+                    'Observações': att.observations,
+                    'Criado Em': Utils.formatDate(att.createdAt),
+                }));
+
+                const worksheet = XLSX.utils.json_to_sheet(dataForExport);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, "Atendimentos");
+                XLSX.writeFile(workbook, `Relatorio_SUAS_App_${new Date().toISOString().slice(0,10)}.xlsx`);
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Página de Administração
+        // -----------------------------------------------------------------------------------
+        const AdminPage = {
+            render() {
+                return `
+                    <div class="space-y-8">
+                        <!-- Secção: Criar Novo Utilizador -->
+                        <div class="bg-white p-6 rounded-lg shadow-md">
+                            <h2 class="text-xl font-bold text-gray-800 mb-4">Criar Novo Profissional</h2>
+                            <form id="create-user-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                                <div>
+                                    <label for="new-user-name" class="block text-sm font-medium text-gray-700">Nome</label>
+                                    <input type="text" id="new-user-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                                </div>
+                                <div>
+                                    <label for="new-user-email" class="block text-sm font-medium text-gray-700">Email</label>
+                                    <input type="email" id="new-user-email" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                                </div>
+                                <div>
+                                    <label for="new-user-role" class="block text-sm font-medium text-gray-700">Função</label>
+                                    <select id="new-user-role" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                                        <option value="professional">Profissional</option>
+                                        <option value="admin">Administrador</option>
+                                    </select>
+                                </div>
+                                <div class="col-span-1 lg:col-span-3">
+                                     <p class="text-sm text-gray-500 mb-2">Uma senha temporária será gerada e deverá ser comunicada ao novo utilizador. Recomenda-se a alteração no primeiro acesso.</p>
+                                    <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700">Criar Utilizador</button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- Secção: Importar Cadastro Único -->
+                        <div class="bg-white p-6 rounded-lg shadow-md">
+                             <h2 class="text-xl font-bold text-gray-800 mb-4">Importar Base do Cadastro Único</h2>
+                             <p class="text-sm text-gray-600 mb-4">Selecione um ficheiro .csv para importar ou atualizar a base de dados de famílias. O ficheiro deve conter as colunas: <strong>cpf_responsavel, nome_responsavel, data_nascimento, status_bolsa_familia, data_atualizacao_cadastral, endereco, latitude, longitude</strong>.</p>
+                             <input type="file" id="csv-file-input" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"/>
+                             <button id="import-csv-btn" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Importar Ficheiro</button>
+                        </div>
+
+                        <!-- Secção: Lista de Utilizadores -->
+                        <div class="bg-white p-6 rounded-lg shadow-md">
+                            <h2 class="text-xl font-bold text-gray-800 mb-4">Gerir Utilizadores</h2>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm text-left text-gray-500">
+                                    <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3">Nome</th>
+                                            <th class="px-6 py-3">Email</th>
+                                            <th class="px-6 py-3">Função</th>
+                                            <th class="px-6 py-3">Status</th>
+                                            <th class="px-6 py-3">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="users-list-body">
+                                        ${this.renderUserRows(AppState.allUsers)}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+            renderUserRows(users) {
+                const currentUser = AppState.userProfile;
+                return users.map(user => `
+                    <tr class="bg-white border-b">
+                        <td class="px-6 py-4 font-medium text-gray-900">${user.name}</td>
+                        <td class="px-6 py-4">${user.email}</td>
+                        <td class="px-6 py-4">${user.role === 'admin' ? 'Admin' : 'Profissional'}</td>
+                        <td class="px-6 py-4">
+                            ${user.disabled ? 
+                                '<span class="text-red-600 font-semibold">Inativo</span>' : 
+                                '<span class="text-green-600 font-semibold">Ativo</span>'
+                            }
+                        </td>
+                        <td class="px-6 py-4">
+                            ${user.id !== currentUser.id ? `
+                            <button data-uid="${user.id}" data-disabled="${user.disabled}" class="toggle-user-status-btn text-sm font-medium ${user.disabled ? 'text-green-600 hover:text-green-800' : 'text-red-600 hover:text-red-800'}">
+                                ${user.disabled ? 'Reativar' : 'Desativar'}
+                            </button>
+                            ` : '<span class="text-gray-400 text-sm">Atual</span>'}
+                        </td>
+                    </tr>
+                `).join('');
+            },
+            attachEvents() {
+                document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    // Gerar uma senha temporária segura
+                    const temporaryPassword = Math.random().toString(36).slice(-8) + 'A1!';
+                    
+                    const userData = {
+                        name: document.getElementById('new-user-name').value,
+                        email: document.getElementById('new-user-email').value,
+                        role: document.getElementById('new-user-role').value,
+                        password: temporaryPassword,
+                    };
+                    
+                    if (confirm(`Está prestes a criar o utilizador ${userData.name} com a senha temporária: ${temporaryPassword}. Anote esta senha para comunicar ao utilizador. Deseja continuar?`)) {
+                        await FirebaseService.createNewUser(userData);
+                        e.target.reset();
+                    }
+                });
+                
+                document.getElementById('import-csv-btn').addEventListener('click', async () => {
+                    const fileInput = document.getElementById('csv-file-input');
+                    if(fileInput.files.length > 0) {
+                        await FirebaseService.importFamiliesFromCSV(fileInput.files[0]);
+                        fileInput.value = ''; // Limpa o input
+                    } else {
+                        Utils.showToast("Por favor, selecione um ficheiro CSV.", "error");
+                    }
+                });
+                
+                document.querySelectorAll('.toggle-user-status-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const uid = e.currentTarget.dataset.uid;
+                        const isDisabled = e.currentTarget.dataset.disabled === 'true';
+                        const newStatus = !isDisabled;
+                        if (confirm(`Tem a certeza que quer ${newStatus ? 'desativar' : 'reativar'} este utilizador?`)) {
+                             await FirebaseService.setUserDisabledStatus(uid, newStatus);
+                        }
+                    });
+                });
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Página do Mapa Interativo
+        // -----------------------------------------------------------------------------------
+        const MapPage = {
+            map: null,
+            markerClusterGroup: null,
+
+            render() {
+                return `
+                    <div class="bg-white p-6 rounded-lg shadow-md h-full flex flex-col">
+                        <h1 class="text-2xl font-bold text-gray-800 mb-4">Vigilância Socioassistencial</h1>
+                        <div class="flex flex-wrap items-end gap-4 p-4 bg-gray-50 rounded-lg mb-4">
+                            <div>
+                                <label for="map-start-date" class="block text-sm font-medium text-gray-700">Data Início</label>
+                                <input type="date" id="map-start-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                            </div>
+                            <div>
+                                <label for="map-end-date" class="block text-sm font-medium text-gray-700">Data Fim</label>
+                                <input type="date" id="map-end-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                            </div>
+                             <div>
+                                <label for="map-service-type" class="block text-sm font-medium text-gray-700">Tipo de Serviço</label>
+                                <select id="map-service-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                    <option value="all">Todos os Serviços</option>
+                                    <!-- Populado dinamicamente -->
+                                </select>
+                            </div>
+                            <button id="apply-map-filters-btn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Aplicar Filtros</button>
+                        </div>
+                        <div id="map-container" class="flex-grow rounded-lg" style="height: 60vh;"></div>
+                    </div>
+                `;
+            },
+
+            attachEvents() {
+                // Popula o select de serviços
+                const allServices = [...new Set(AppState.allAttendances.map(a => a.serviceType))];
+                const serviceSelect = document.getElementById('map-service-type');
+                allServices.forEach(s => {
+                    serviceSelect.innerHTML += `<option value="${s}">${s}</option>`;
+                });
+                
+                document.getElementById('apply-map-filters-btn').addEventListener('click', () => this.updateMapMarkers());
+                
+                // A inicialização do mapa deve ocorrer após o DOM ser renderizado
+                setTimeout(() => this.initMap(), 0);
+            },
+            
+            initMap() {
+                if (this.map) {
+                    this.map.remove();
+                }
+                
+                // Coordenadas de Capão do Leão, RS, Brasil
+                this.map = L.map('map-container').setView([-31.765, -52.404], 13);
+                
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(this.map);
+
+                this.markerClusterGroup = L.markerClusterGroup();
+                this.map.addLayer(this.markerClusterGroup);
+
+                this.updateMapMarkers();
+            },
+            
+            async updateMapMarkers() {
+                if (!this.map || !this.markerClusterGroup) return;
+                
+                this.markerClusterGroup.clearLayers();
+                
+                // Combina dados de atendimentos com dados de famílias para obter coordenadas
+                const attendancesWithCoords = [];
+                for(const att of AppState.allAttendances) {
+                    // Tenta encontrar a família pelo nome (simplificação) ou por um ID vinculado (melhor abordagem)
+                    // Vamos assumir que o CPF da familia é armazenado no atendimento se o fluxo de CadUnico foi usado.
+                    if(att.familyCpf) {
+                        const family = await FirebaseService.getFamilyByCPF(att.familyCpf);
+                        if (family && family.latitude && family.longitude) {
+                            attendancesWithCoords.push({ ...att, ...family });
+                        }
+                    }
+                }
+                
+                // Filtra os dados de famílias importadas que têm coordenadas
+                const families = Array.from(AppState.familiesData.values()).filter(f => f.latitude && f.longitude);
+                
+                // Filtra com base nos inputs do utilizador
+                const startDate = document.getElementById('map-start-date').value;
+                const endDate = document.getElementById('map-end-date').value;
+                const serviceType = document.getElementById('map-service-type').value;
+
+                let filteredAttendances = AppState.allAttendances;
+                if (startDate) {
+                    filteredAttendances = filteredAttendances.filter(a => a.createdAt && a.createdAt.toDate() >= new Date(startDate));
+                }
+                 if (endDate) {
+                    const end = new Date(endDate);
+                    end.setDate(end.getDate() + 1);
+                    filteredAttendances = filteredAttendances.filter(a => a.createdAt && a.createdAt.toDate() < end);
+                }
+                if (serviceType !== 'all') {
+                    filteredAttendances = filteredAttendances.filter(a => a.serviceType === serviceType);
+                }
+
+                // Obtém as famílias associadas aos atendimentos filtrados
+                const associatedFamilyCpfs = new Set(filteredAttendances.map(a => a.familyCpf).filter(Boolean));
+                const familiesToShow = families.filter(f => associatedFamilyCpfs.has(f.cpf_responsavel));
+
+                if (familiesToShow.length === 0) {
+                     Utils.showToast("Nenhum atendimento georreferenciado encontrado para os filtros selecionados.", "info");
+                     return;
+                }
+
+                familiesToShow.forEach(family => {
+                    const lat = parseFloat(family.latitude);
+                    const lon = parseFloat(family.longitude);
+                    
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                         const marker = L.marker([lat, lon]);
+                         const relatedAttendances = filteredAttendances.filter(a => a.familyCpf === family.cpf_responsavel);
+                         
+                         let popupContent = `<b>${family.nome_responsavel}</b><br>${family.endereco}<hr>`;
+                         relatedAttendances.forEach(att => {
+                            popupContent += `<b>Serviço:</b> ${att.serviceType}<br><b>Data:</b> ${Utils.formatDate(att.attendanceDate)}<br><br>`;
+                         });
+
+                         marker.bindPopup(popupContent);
+                         this.markerClusterGroup.addLayer(marker);
+                    }
+                });
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Página do Chat
+        // -----------------------------------------------------------------------------------
+        const ChatPage = {
+            activeChatRoomId: null,
+            activeChatUnsubscribe: null,
+
+            render() {
+                const user = AppState.userProfile;
+                const otherUsers = AppState.allUsers.filter(u => u.id !== user.id && !u.disabled);
+
+                return `
+                    <div class="h-full flex bg-white rounded-lg shadow-md overflow-hidden">
+                        <!-- Coluna da Esquerda: Lista de Conversas -->
+                        <div class="w-1/3 border-r border-gray-200 flex flex-col">
+                            <div class="p-4 border-b">
+                                <h2 class="text-lg font-bold">Conversas</h2>
+                                <button id="new-chat-btn" class="mt-2 w-full bg-emerald-500 text-white py-2 rounded-lg hover:bg-emerald-600">+ Nova Conversa</button>
+                                <div id="new-chat-dropdown" class="hidden mt-2 bg-white border rounded-lg shadow-xl absolute z-10 w-64">
+                                     ${otherUsers.map(u => `<a href="#" data-uid="${u.id}" class="block px-4 py-2 text-gray-800 hover:bg-gray-100 start-chat-link">${u.name}</a>`).join('')}
+                                </div>
+                            </div>
+                            <div id="chat-list" class="flex-grow overflow-y-auto">
+                                <!-- A lista de chats será preenchida aqui -->
+                                ${Utils.renderSpinner()}
+                            </div>
+                        </div>
+
+                        <!-- Coluna da Direita: Janela da Conversa -->
+                        <div id="chat-window" class="w-2/3 flex flex-col">
+                           <div class="flex-grow flex items-center justify-center text-gray-500">
+                                <div class="text-center">
+                                    <i class="far fa-comments text-6xl mb-4"></i>
+                                    <p>Selecione uma conversa para começar</p>
+                                    ${user.role === 'admin' ? '<p class="text-sm mt-2 text-yellow-600">Visão de Administrador: pode visualizar todas as conversas.</p>' : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+
+            attachEvents() {
+                const newChatBtn = document.getElementById('new-chat-btn');
+                const newChatDropdown = document.getElementById('new-chat-dropdown');
+
+                newChatBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    newChatDropdown.classList.toggle('hidden');
+                });
+                
+                document.body.addEventListener('click', () => newChatDropdown.classList.add('hidden'));
+
+                document.querySelectorAll('.start-chat-link').forEach(link => {
+                    link.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        const targetUserId = e.currentTarget.dataset.uid;
+                        const targetUser = AppState.allUsers.find(u => u.id === targetUserId);
+                        const roomId = await FirebaseService.createChatRoom(targetUser);
+                        this.openChatRoom(roomId);
+                    });
+                });
+
+                this.listenForChatRooms();
+            },
+            
+            listenForChatRooms() {
+                const user = AppState.userProfile;
+                let q;
+                if(user.role === 'admin') {
+                    // Admin vê todas as conversas
+                    q = query(collection(db, 'chatRooms'));
+                } else {
+                    // Profissional só vê as conversas em que participa
+                    q = query(collection(db, 'chatRooms'), where('participants', 'array-contains', user.id));
+                }
+                
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const chatListDiv = document.getElementById('chat-list');
+                    if (snapshot.empty) {
+                        chatListDiv.innerHTML = '<p class="p-4 text-center text-gray-500">Nenhuma conversa encontrada.</p>';
+                        return;
+                    }
+
+                    const rooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // Ordena pela mensagem mais recente
+                    rooms.sort((a,b) => b.lastMessageTimestamp.toDate() - a.lastMessageTimestamp.toDate());
+
+                    chatListDiv.innerHTML = rooms.map(room => {
+                        const otherParticipantId = room.participants.find(p => p !== user.id);
+                        // Para o admin, o "outro" pode não existir se for uma conversa entre 2 outros profissionais
+                        const otherParticipantName = room.participantNames[otherParticipantId] || 
+                            `${room.participantNames[room.participants[0]]} & ${room.participantNames[room.participants[1]]}`;
+
+                        return `
+                            <div data-roomid="${room.id}" class="chat-list-item p-4 border-b hover:bg-gray-50 cursor-pointer flex">
+                                <div class="w-12 h-12 bg-gray-300 rounded-full flex items-center justify-center mr-4">
+                                    <i class="fas fa-user text-xl text-gray-600"></i>
+                                </div>
+                                <div class="flex-grow overflow-hidden">
+                                    <p class="font-bold truncate">${otherParticipantName}</p>
+                                    <p class="text-sm text-gray-500 truncate">${room.lastMessage}</p>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    document.querySelectorAll('.chat-list-item').forEach(item => {
+                        item.addEventListener('click', () => {
+                            this.openChatRoom(item.dataset.roomid);
+                        });
+                    });
+                });
+                AppState.activeSubscriptions.push(unsubscribe);
+            },
+            
+            openChatRoom(roomId) {
+                if (this.activeChatUnsubscribe) {
+                    this.activeChatUnsubscribe();
+                }
+
+                this.activeChatRoomId = roomId;
+                const chatWindow = document.getElementById('chat-window');
+                const roomData = AppState.allUsers // We need to find the room data from somewhere, let's assume it's fetched or available
+                
+                const user = AppState.userProfile;
+                const roomRef = doc(db, "chatRooms", roomId);
+
+                getDoc(roomRef).then(docSnap => {
+                    if (docSnap.exists()) {
+                        const room = docSnap.data();
+                        const otherParticipantId = room.participants.find(p => p !== user.id);
+                        const otherParticipantName = room.participantNames[otherParticipantId] || `Conversa Auditada`;
+
+                        chatWindow.innerHTML = `
+                            <div class="p-4 border-b flex items-center">
+                                <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center mr-3">
+                                    <i class="fas fa-user text-lg text-gray-600"></i>
+                                </div>
+                                <h3 class="font-bold text-lg">${otherParticipantName}</h3>
+                            </div>
+                            <div id="message-list" class="flex-grow p-4 overflow-y-auto bg-gray-50 flex flex-col space-y-4">
+                                <!-- Mensagens -->
+                            </div>
+                            <div class="p-4 bg-white border-t">
+                                <form id="chat-form" class="flex items-center gap-2">
+                                    <input type="text" id="chat-input" placeholder="Digite uma mensagem..." class="flex-grow p-2 border rounded-full" autocomplete="off">
+                                    <button type="submit" class="bg-emerald-500 text-white rounded-full w-10 h-10 flex items-center justify-center">
+                                        <i class="fas fa-paper-plane"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        `;
+
+                        this.listenForMessages(roomId);
+
+                        document.getElementById('chat-form').addEventListener('submit', (e) => {
+                            e.preventDefault();
+                            const input = document.getElementById('chat-input');
+                            if (input.value.trim()) {
+                                FirebaseService.sendChatMessage(roomId, input.value.trim());
+                                input.value = '';
+                            }
+                        });
+                    }
+                });
+            },
+            
+            listenForMessages(roomId) {
+                const messagesCol = collection(db, `chatRooms/${roomId}/messages`);
+                const q = query(messagesCol); // Adicionar orderBy('timestamp') requer um índice composto
+                
+                this.activeChatUnsubscribe = onSnapshot(q, (snapshot) => {
+                    const messageList = document.getElementById('message-list');
+                    if (!messageList) return;
+                    
+                    const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    messages.sort((a,b) => a.timestamp.toDate() - b.timestamp.toDate());
+                    
+                    messageList.innerHTML = messages.map(msg => {
+                         const isSent = msg.senderId === AppState.userProfile.id;
+                         const bubbleClass = isSent ? 'chat-bubble-sent' : 'chat-bubble-received';
+                         return `
+                            <div class="max-w-xs md:max-w-md p-3 rounded-lg ${bubbleClass}">
+                                ${!isSent ? `<p class="font-bold text-xs text-emerald-700">${msg.senderName}</p>` : ''}
+                                <p>${msg.text}</p>
+                                <p class="text-right text-xs text-gray-400 mt-1">${Utils.formatDate(msg.timestamp).split(' ')[1]}</p>
+                            </div>
+                         `;
+                    }).join('');
+                    
+                    // Scroll para a última mensagem
+                    messageList.scrollTop = messageList.scrollHeight;
+                });
+                AppState.activeSubscriptions.push(this.activeChatUnsubscribe);
+            }
+        };
+
+        // -----------------------------------------------------------------------------------
+        // Página de Links Úteis
+        // -----------------------------------------------------------------------------------
+        const UsefulLinksPage = {
+            render() {
+                const links = {
+                    'Legislação Principal': [
+                        { text: 'Lei Orgânica da Assistência Social (LOAS)', url: 'http://www.planalto.gov.br/ccivil_03/leis/l8742.htm' },
+                        { text: 'Política Nacional de Assistência Social (PNAS/2004)', url: 'https://www.mds.gov.br/webarquivos/publicacao/assistencia_social/Normativas/PNAS2004.pdf' },
+                        { text: 'Norma Operacional Básica (NOB/SUAS)', url: 'https://www.mds.gov.br/webarquivos/publicacao/assistencia_social/Normativas/NOB_SUAS.pdf' },
+                    ],
+                    'Normas e Tipificações': [
+                         { text: 'Tipificação Nacional de Serviços Socioassistenciais', url: 'https://www.mds.gov.br/webarquivos/public/resolucao_cnas_109.pdf' },
+                         { text: 'Protocolo de Gestão Integrada de Serviços', url: 'https://www.mds.gov.br/webarquivos/publicacao/assistencia_social/Cadernos/Protocolo_Gestao_Servicos_Beneficios_Transferencia_Renda_SUAS.pdf' },
+                    ],
+                    'Programas e Benefícios': [
+                        { text: 'Portal do Cadastro Único', url: 'https://www.gov.br/cidadania/pt-br/acoes-e-programas/cadastro-unico' },
+                        { text: 'Benefício de Prestação Continuada (BPC)', url: 'https://www.gov.br/inss/pt-br/direitos-e-deveres/beneficios/beneficio-assistencial-a-pessoa-com-deficiencia-bpc' },
+                    ]
+                };
+
+                return `
+                    <div class="bg-white p-8 rounded-lg shadow-md max-w-4xl mx-auto">
+                        <h1 class="text-2xl font-bold text-gray-800 mb-6">Links Úteis</h1>
+                        <p class="text-gray-600 mb-8">Um repositório de acesso rápido a legislações, normas e documentos importantes para a prática profissional no SUAS.</p>
+                        
+                        ${Object.keys(links).map(category => `
+                            <div class="mb-8">
+                                <h2 class="text-xl font-semibold text-emerald-700 border-b-2 border-emerald-200 pb-2 mb-4">${category}</h2>
+                                <ul class="space-y-3 list-disc list-inside">
+                                    ${links[category].map(link => `
+                                        <li>
+                                            <a href="${link.url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 hover:underline">
+                                                ${link.text} <i class="fas fa-external-link-alt text-xs ml-1"></i>
+                                            </a>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            },
+            attachEvents() {}
+        };
+        
+        // ===================================================================================
+        // ROUTER - Gestor de Navegação
+        // Responsável por renderizar a página correta com base no URL hash.
+        // ===================================================================================
+        const Router = {
+            pages: {
+                login: LoginPage,
+                'register-admin': RegisterAdminPage,
+                'forgot-password': ForgotPasswordPage,
+                welcome: WelcomeDashboardPage,
+                'new-attendance': NewAttendancePage,
+                'all-attendances': {
+                    render: () => AttendanceListPage.render('Todos os Atendimentos', AppState.allAttendances, true, true),
+                    attachEvents: () => AttendanceListPage.attachEvents(AppState.allAttendances, 'Todos os Atendimentos', true, true)
+                },
+                'inbox': {
+                    render: () => {
+                        const inboxItems = AppState.allAttendances.filter(a => a.encaminhadoPara === AppState.userProfile.id);
+                        return AttendanceListPage.render('Caixa de Entrada', inboxItems, true, false);
+                    },
+                    attachEvents: () => {
+                        const inboxItems = AppState.allAttendances.filter(a => a.encaminhadoPara === AppState.userProfile.id);
+                        AttendanceListPage.attachEvents(inboxItems, 'Caixa de Entrada', true, false);
+                    }
+                },
+                'my-history': {
+                    render: () => {
+                        const historyItems = AppState.allAttendances.filter(a => a.participantes.includes(AppState.userProfile.id));
+                         return AttendanceListPage.render('Meu Histórico de Casos', historyItems, true, true);
+                    },
+                    attachEvents: () => {
+                        const historyItems = AppState.allAttendances.filter(a => a.participantes.includes(AppState.userProfile.id));
+                        AttendanceListPage.attachEvents(historyItems, 'Meu Histórico de Casos', true, true);
+                    }
+                },
+                dashboard: AdminDashboardPage,
+                admin: AdminPage,
+                map: MapPage,
+                chat: ChatPage,
+                'useful-links': UsefulLinksPage,
+            },
+            
+            async navigate(path) {
+                AppState.currentPage = path;
+                const appContainer = document.getElementById('app');
+                
+                // Limpa subscrições antigas para evitar memory leaks
+                AppState.activeSubscriptions.forEach(unsub => unsub());
+                AppState.activeSubscriptions = [];
+                
+                // Rotas públicas (antes do login)
+                const publicRoutes = ['login', 'register-admin', 'forgot-password'];
+                if (publicRoutes.includes(path)) {
+                    const page = this.pages[path];
+                    appContainer.innerHTML = await page.render();
+                    page.attachEvents();
+                    return;
+                }
+                
+                // Rotas privadas (requerem login)
+                if (!AppState.userProfile) {
+                    this.navigate('login');
+                    return;
+                }
+
+                appContainer.innerHTML = AppShell.render();
+                AppShell.attachEvents();
+                
+                const contentArea = document.getElementById('page-content');
+                const page = this.pages[path];
+                
+                if (page) {
+                    contentArea.innerHTML = Utils.renderSpinner();
+                    contentArea.innerHTML = await page.render();
+                    page.attachEvents();
+                    this.updateActiveNavLink(path);
+                } else {
+                    // Fallback para a página de boas-vindas
+                    this.navigate('welcome');
+                }
+            },
+            
+            updateActiveNavLink(path) {
+                document.querySelectorAll('.nav-link').forEach(link => {
+                    link.classList.remove('active');
+                    if(link.dataset.page === path) {
+                        link.classList.add('active');
+                    }
+                });
+            }
+        };
+
+        // ===================================================================================
+        // PONTO DE ENTRADA PRINCIPAL DA APLICAÇÃO (App)
+        // ===================================================================================
+        const App = {
+            async init() {
+                // Registo do Service Worker para PWA
+                if ('serviceWorker' in navigator) {
+                    try {
+                        await navigator.serviceWorker.register('service-worker.js');
+                        console.log('Service Worker registado com sucesso.');
+                    } catch (error) {
+                        console.error('Falha ao registar Service Worker:', error);
+                    }
+                }
+                
+                // Listener do estado de autenticação
+                onAuthStateChanged(auth, async (user) => {
+                    const initialLoading = document.getElementById('initial-loading');
+                    if (initialLoading) initialLoading.style.display = 'none';
+
+                    if (user) {
+                        const profile = await FirebaseService.getUserProfile(user.uid);
+                        if (profile && !profile.disabled) {
+                            AppState.currentUser = user;
+                            AppState.userProfile = profile;
+                            this.startAppForUser();
+                        } else {
+                            // Se o perfil não existe ou está desativado, faz logout.
+                            await signOut(auth);
+                        }
+                    } else {
+                        AppState.currentUser = null;
+                        AppState.userProfile = null;
+                        AppState.isAuthReady = true;
+                        this.stopInactivityTimers();
+                        const hash = window.location.hash.substring(1);
+                        Router.navigate(hash === 'register-admin' || hash === 'forgot-password' ? hash : 'login');
+                    }
+                });
+                
+                window.addEventListener('hashchange', () => {
+                    const path = window.location.hash.substring(1);
+                    if (path !== AppState.currentPage) {
+                       Router.navigate(path || (AppState.userProfile ? 'welcome' : 'login'));
+                    }
+                });
+            },
+
+            startAppForUser() {
+                AppState.isAuthReady = true;
+                this.listenToData();
+                this.resetInactivityTimers();
+                 // Navega para a página inicial ou a que estiver no URL
+                const path = window.location.hash.substring(1);
+                Router.navigate(path || 'welcome');
+            },
+            
+            listenToData() {
+                // Listener para utilizadores (para admins)
+                if (AppState.userProfile.role === 'admin') {
+                    const usersUnsub = onSnapshot(collection(db, "users"), (snapshot) => {
+                        AppState.allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        if(AppState.currentPage === 'admin') Router.navigate('admin'); // Re-renderiza se estiver na página
+                    });
+                     AppState.activeSubscriptions.push(usersUnsub);
+                } else {
+                    // Profissionais precisam da lista de utilizadores para encaminhar casos
+                    getDocs(collection(db, "users")).then(snapshot => {
+                        AppState.allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    });
+                }
+                
+                // Listener para atendimentos
+                let q;
+                if(AppState.userProfile.role === 'admin') {
+                    q = query(collection(db, "attendances"));
+                } else {
+                    // Profissional só vê os casos em que é participante
+                    q = query(collection(db, "attendances"), where('participantes', 'array-contains', AppState.userProfile.id));
+                }
+
+                const attendancesUnsub = onSnapshot(q, (snapshot) => {
+                    AppState.allAttendances = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // Re-renderiza a página atual se for uma lista de atendimentos
+                    const listPages = ['all-attendances', 'inbox', 'my-history'];
+                    if (listPages.includes(AppState.currentPage)) {
+                        Router.navigate(AppState.currentPage);
+                    }
+                });
+                AppState.activeSubscriptions.push(attendancesUnsub);
+                
+                 // Listener para famílias (para o mapa)
+                 if(AppState.userProfile.role === 'admin') {
+                     const familiesUnsub = onSnapshot(collection(db, "families"), (snapshot) => {
+                         AppState.familiesData.clear();
+                         snapshot.docs.forEach(doc => {
+                             AppState.familiesData.set(doc.id, { id: doc.id, ...doc.data() });
+                         });
+                          if(AppState.currentPage === 'map') MapPage.updateMapMarkers();
+                     });
+                     AppState.activeSubscriptions.push(familiesUnsub);
+                 }
+            },
+            
+            // Gestão de inatividade
+            resetInactivityTimers() {
+                this.stopInactivityTimers();
+                
+                const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutos
+                const DRAFT_SAVE_TIMEOUT = 9 * 60 * 1000; // 9 minutos
+
+                AppState.inactivityTimer = setTimeout(() => {
+                    Utils.showToast('Sessão terminada por inatividade.', 'info');
+                    signOut(auth);
+                }, INACTIVITY_TIMEOUT);
+                
+                AppState.draftSaveTimer = setTimeout(() => {
+                    if (AppState.currentPage === 'new-attendance') {
+                        NewAttendancePage.saveDraft();
+                    }
+                }, DRAFT_SAVE_TIMEOUT);
+
+                // Adiciona listeners para resetar o timer
+                window.addEventListener('mousemove', this.resetInactivityTimers.bind(this), { once: true });
+                window.addEventListener('keypress', this.resetInactivityTimers.bind(this), { once: true });
+            },
+
+            stopInactivityTimers() {
+                if (AppState.inactivityTimer) clearTimeout(AppState.inactivityTimer);
+                if (AppState.draftSaveTimer) clearTimeout(AppState.draftSaveTimer);
+            }
+        };
+
+        // Iniciar a aplicação
+        App.init();
+
+    </script>
+</body>
+</html>
