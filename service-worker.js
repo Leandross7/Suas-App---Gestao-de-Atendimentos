@@ -1,51 +1,45 @@
-const CACHE_NAME = 'suas-app-cache-v3'; // Versão incrementada para forçar a atualização
-const urlsToCache = [
-  './', // O '.' é importante para o GitHub Pages
-  './index.html',
-  './manifest.json'
-  // Linhas dos ícones removidas para garantir que a cache seja criada com sucesso.
-];
+    const CACHE_NAME = 'suas-app-cache-v4'; // Versão incrementada para forçar a atualização
+    const urlsToCache = [
+      './',
+      './index.html',
+      './manifest.json',
+      './favicon.ico',
+      './icons/icon-144x144.png',
+      './icons/icon-192x192.png',
+      './icons/icon-512x512.png'
+    ];
 
-// Evento de Instalação: guarda os ficheiros essenciais em cache
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Cache aberta e atualizada');
-        return cache.addAll(urlsToCache);
-      })
-  );
-});
+    self.addEventListener('install', event => {
+      event.waitUntil(
+        caches.open(CACHE_NAME)
+          .then(cache => {
+            console.log('Cache aberta e a guardar ficheiros essenciais.');
+            return cache.addAll(urlsToCache);
+          })
+      );
+    });
 
-// Evento de Fetch: serve os ficheiros a partir da cache se disponíveis
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        // Se encontrarmos na cache, retornamos
-        if (response) {
-          return response;
-        }
-        // Caso contrário, fazemos o pedido à rede
-        return fetch(event.request);
-      }
-    )
-  );
-});
+    self.addEventListener('fetch', event => {
+      event.respondWith(
+        caches.match(event.request)
+          .then(response => {
+            return response || fetch(event.request);
+          })
+      );
+    });
 
-// Evento de Ativação: limpa caches antigas
-self.addEventListener('activate', event => {
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            console.log('A limpar cache antiga:', cacheName);
-            return caches.delete(cacheName);
-          }
+    self.addEventListener('activate', event => {
+      const cacheWhitelist = [CACHE_NAME];
+      event.waitUntil(
+        caches.keys().then(cacheNames => {
+          return Promise.all(
+            cacheNames.map(cacheName => {
+              if (cacheWhitelist.indexOf(cacheName) === -1) {
+                return caches.delete(cacheName);
+              }
+            })
+          );
         })
       );
-    })
-  );
-});
+    });
+    
