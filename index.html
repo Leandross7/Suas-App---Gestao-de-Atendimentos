@@ -26,9 +26,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#10B981">
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
+    <link rel="icon" type="image/x-icon" href="./favicon.ico">
+
 
     <style>
         /* Estilos personalizados para complementar o Tailwind */
@@ -48,6 +50,15 @@
             border-radius: 50%;
             border-left-color: #10B981;
             animation: spin 1s ease-in-out infinite;
+        }
+        .spinner-small {
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border-left-color: #10B981;
+            animation: spin 1s ease-in-out infinite;
+            display: inline-block;
         }
 
         /* Estilos para as notificações "Toast" */
@@ -113,7 +124,7 @@
     <div id="toast-container"></div>
 
     <!-- Modal genérico -->
-    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
         <div id="modal-content" class="bg-white rounded-lg shadow-xl w-11/12 md:w-2/3 lg:w-1/2 max-h-[90vh] overflow-y-auto">
             <!-- O conteúdo do modal será injetado aqui pelo JavaScript -->
         </div>
@@ -152,10 +163,9 @@
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 
         // ===================================================================================
-        // CONFIGURAÇÃO DO FIREBASE (NÃO ALTERAR)
+        // CONFIGURAÇÃO DO FIREBASE
         // ===================================================================================
-        // As variáveis __firebase_config e __initial_auth_token serão fornecidas pelo ambiente.
-       const firebaseConfig = {
+         const firebaseConfig = {
   apiKey: "AIzaSyCTXfhBbiXtOYtWnketVqk3mXdCHgpv0mY",
   authDomain: "suas-app-ga.firebaseapp.com",
   projectId: "suas-app-ga",
@@ -168,10 +178,10 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const functions = getFunctions(app, 'southamerica-east1'); // Especifique a região se necessário
+        const functions = getFunctions(app, 'southamerica-east1');
 
         // ===================================================================================
-        // ESTADO GLOBAL DA APLICAÇÃO (Single Source of Truth)
+        // ESTADO GLOBAL DA APLICAÇÃO
         // ===================================================================================
         const AppState = {
             currentUser: null,
@@ -180,37 +190,30 @@
             currentPage: '',
             allUsers: [],
             allAttendances: [],
-            familiesData: new Map(), // Para dados do Cadastro Único
-            activeSubscriptions: [], // Para gerir listeners do Firestore
+            familiesData: new Map(),
+            activeSubscriptions: [],
             inactivityTimer: null,
             draftSaveTimer: null,
         };
         
         // ===================================================================================
         // MÓDULO DE UTILITÁRIOS (Utils)
-        // Funções genéricas usadas em toda a aplicação.
         // ===================================================================================
         const Utils = {
-            // Exibe uma notificação toast
             showToast(message, type = 'info', duration = 3000) {
                 const container = document.getElementById('toast-container');
                 const toast = document.createElement('div');
                 toast.className = `toast ${type}`;
                 toast.textContent = message;
                 container.appendChild(toast);
-
-                // Força o reflow para a animação funcionar
                 requestAnimationFrame(() => {
                     toast.classList.add('show');
                 });
-
                 setTimeout(() => {
                     toast.classList.remove('show');
                     setTimeout(() => container.removeChild(toast), 500);
                 }, duration);
             },
-
-            // Formata datas
             formatDate(timestamp) {
                 if (!timestamp) return 'N/A';
                 const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -219,8 +222,6 @@
                     hour: '2-digit', minute: '2-digit'
                 });
             },
-            
-            // Abre um modal com conteúdo dinâmico
             openModal(content) {
                 const modalContainer = document.getElementById('modal-container');
                 const modalContent = document.getElementById('modal-content');
@@ -228,58 +229,48 @@
                 modalContainer.classList.remove('hidden');
                 modalContainer.classList.add('flex');
             },
-
-            // Fecha o modal
             closeModal() {
                 const modalContainer = document.getElementById('modal-container');
                 modalContainer.classList.add('hidden');
                 modalContainer.classList.remove('flex');
                 document.getElementById('modal-content').innerHTML = '';
             },
-            
-            // Gera um crachá de status
             getStatusBadge(status) {
                 switch (status) {
-                    case 'Em Aberto':
-                        return `<span class="bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Em Aberto</span>`;
-                    case 'Encaminhado':
-                        return `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Encaminhado</span>`;
-                    case 'Finalizado':
-                        return `<span class="bg-green-100 text-green-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Finalizado</span>`;
-                    case 'Retornado':
-                        return `<span class="bg-purple-100 text-purple-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Retornado</span>`;
-                    default:
-                        return `<span class="bg-gray-100 text-gray-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">${status || 'N/A'}</span>`;
+                    case 'Em Aberto': return `<span class="bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Em Aberto</span>`;
+                    case 'Encaminhado': return `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Encaminhado</span>`;
+                    case 'Finalizado': return `<span class="bg-green-100 text-green-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Finalizado</span>`;
+                    case 'Retornado': return `<span class="bg-purple-100 text-purple-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">Retornado</span>`;
+                    default: return `<span class="bg-gray-100 text-gray-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full">${status || 'N/A'}</span>`;
                 }
             },
-
-            // Gera o HTML para um spinner
             renderSpinner() {
                 return `<div class="flex justify-center items-center p-8"><div class="spinner"></div></div>`;
             }
         };
         
-        // Fechar modal ao clicar fora
         document.getElementById('modal-container').addEventListener('click', (e) => {
-            if (e.target.id === 'modal-container') {
-                Utils.closeModal();
-            }
+            if (e.target.id === 'modal-container') Utils.closeModal();
         });
-
 
         // ===================================================================================
         // MÓDULO DE SERVIÇOS DO FIREBASE (FirebaseService)
-        // Centraliza toda a comunicação com o backend.
         // ===================================================================================
         const FirebaseService = {
-            // Busca o perfil de um utilizador
             async getUserProfile(uid) {
-                const docRef = doc(db, "users", uid);
-                const docSnap = await getDoc(docRef);
-                return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+                try {
+                    const docRef = doc(db, "users", uid);
+                    const docSnap = await getDoc(docRef);
+                    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+                } catch (error) {
+                    console.error("Erro ao buscar perfil do utilizador:", error);
+                    if (error.code === 'permission-denied') {
+                         Utils.showToast("As suas permissões podem ter sido alteradas. Tente fazer login novamente.", "error");
+                         signOut(auth);
+                    }
+                    return null;
+                }
             },
-            
-            // Adiciona um novo atendimento
             async addAttendance(data) {
                 const user = AppState.userProfile;
                 const attendanceData = {
@@ -301,29 +292,23 @@
                 };
                 await addDoc(collection(db, "attendances"), attendanceData);
             },
-            
-            // Atualiza um atendimento existente
             async updateAttendance(id, data, historyLog) {
                 const user = AppState.userProfile;
                 const docRef = doc(db, "attendances", id);
                 const currentDoc = await getDoc(docRef);
                 const currentHistory = currentDoc.data().history || [];
-                
                 const newHistoryEntry = {
                     ...historyLog,
                     user: user.name,
                     userId: user.id,
                     timestamp: Timestamp.now()
                 };
-
                 await updateDoc(docRef, {
                     ...data,
                     updatedAt: serverTimestamp(),
                     history: [...currentHistory, newHistoryEntry]
                 });
             },
-            
-            // Chama a Cloud Function para criar um novo utilizador
             async createNewUser(userData) {
                 try {
                     const createNewUserFunction = httpsCallable(functions, 'createNewUser');
@@ -338,44 +323,31 @@
                     Utils.showToast(error.message, 'error');
                 }
             },
-            
-            // Altera o estado (ativo/inativo) de um utilizador
             async setUserDisabledStatus(uid, disabled) {
                 const userRef = doc(db, "users", uid);
                 await updateDoc(userRef, { disabled });
                 Utils.showToast(`Utilizador ${disabled ? 'desativado' : 'reativado'} com sucesso.`, 'success');
             },
-            
-            // Importa famílias do Cadastro Único (CSV)
             async importFamiliesFromCSV(file) {
                 return new Promise((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onload = async (event) => {
                         try {
                             const lines = event.target.result.split('\n').filter(line => line.trim() !== '');
-                            if (lines.length <= 1) {
-                                throw new Error("Ficheiro CSV vazio ou sem dados.");
-                            }
-
-                            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                            if (lines.length <= 1) throw new Error("Ficheiro CSV vazio ou sem dados.");
+                            const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
                             const requiredHeaders = ['cpf_responsavel', 'nome_responsavel', 'data_nascimento', 'status_bolsa_familia', 'data_atualizacao_cadastral', 'endereco', 'latitude', 'longitude'];
-                            
                             for (const h of requiredHeaders) {
-                                if (!headers.includes(h)) {
-                                    throw new Error(`Coluna obrigatória em falta no CSV: ${h}`);
-                                }
+                                if (!headers.includes(h)) throw new Error(`Coluna obrigatória em falta no CSV: ${h}`);
                             }
-
                             const batch = writeBatch(db);
                             let count = 0;
                             for (let i = 1; i < lines.length; i++) {
-                                const values = lines[i].split(',').map(v => v.trim());
+                                const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
                                 const familyData = headers.reduce((obj, header, index) => {
                                     obj[header] = values[index] || '';
                                     return obj;
                                 }, {});
-
-                                // A chave do documento será o CPF para fácil consulta
                                 const docId = familyData.cpf_responsavel.replace(/\D/g, ''); 
                                 if (docId) {
                                     const docRef = doc(db, "families", docId);
@@ -383,11 +355,9 @@
                                     count++;
                                 }
                             }
-                            
                             await batch.commit();
                             Utils.showToast(`${count} famílias importadas com sucesso!`, 'success');
                             resolve();
-
                         } catch (error) {
                             Utils.showToast(`Erro ao processar CSV: ${error.message}`, 'error');
                             console.error("Erro no CSV:", error);
@@ -397,8 +367,6 @@
                     reader.readAsText(file);
                 });
             },
-            
-            // Busca dados de uma família pelo CPF
             async getFamilyByCPF(cpf) {
                 const cleanCPF = cpf.replace(/\D/g, '');
                 if (!cleanCPF) return null;
@@ -406,36 +374,27 @@
                 const docSnap = await getDoc(docRef);
                 return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
             },
-            
-            // Envia uma mensagem no chat
             async sendChatMessage(roomId, text) {
                 const user = AppState.userProfile;
                 const roomRef = doc(db, "chatRooms", roomId);
                 const messagesCol = collection(roomRef, "messages");
-                
                 await addDoc(messagesCol, {
                     text: text,
                     senderId: user.id,
                     senderName: user.name,
                     timestamp: serverTimestamp()
                 });
-                
-                // Atualiza a última mensagem na sala para preview
                 await updateDoc(roomRef, {
                     lastMessage: text,
                     lastMessageTimestamp: serverTimestamp()
                 });
             },
-            
-            // Cria uma nova sala de chat
             async createChatRoom(targetUser) {
                 const currentUser = AppState.userProfile;
                 const members = [currentUser.id, targetUser.id].sort();
                 const roomId = members.join('_');
-                
                 const roomRef = doc(db, "chatRooms", roomId);
                 const roomSnap = await getDoc(roomRef);
-
                 if (!roomSnap.exists()) {
                     await setDoc(roomRef, {
                         participants: members,
@@ -454,33 +413,20 @@
 
         // ===================================================================================
         // MÓDULOS DE COMPONENTES DE PÁGINA
-        // Cada objeto representa uma "página" ou "vista" da aplicação.
         // ===================================================================================
 
         // -----------------------------------------------------------------------------------
         // Página de Login
         // -----------------------------------------------------------------------------------
         const LoginPage = {
-            async render() {
-                // *** ALTERAÇÃO IMPORTANTE ***
-                // Chama a Cloud Function para verificar se existe um admin.
-                // Isto evita o erro de permissão, pois a função executa no servidor.
-                let isAdminCreated = true; // Assume que existe para evitar mostrar o link por defeito
-                try {
-                    const checkAdminFunction = httpsCallable(functions, 'checkAdminExists');
-                    const result = await checkAdminFunction();
-                    isAdminCreated = result.data.adminExists;
-                } catch (e) {
-                    console.error("Erro ao verificar admin:", e);
-                    Utils.showToast("Não foi possível verificar o estado do sistema. Tente novamente.", "error");
-                }
-
+            render() {
+                // Renderiza o formulário com um placeholder para o link de registo
                 return `
                     <div class="min-h-screen flex items-center justify-center bg-gray-100">
                         <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
                             <div class="text-center mb-8">
-                                <i class="fas fa-hands-helping text-5xl text-emerald-500"></i>
-                                <h1 class="text-3xl font-bold text-gray-800 mt-4">SUAS App</h1>
+                                <img src="./icons/icon-192x192.png" alt="SUAS App Logo" class="w-20 h-20 mx-auto mb-4">
+                                <h1 class="text-3xl font-bold text-gray-800">SUAS App</h1>
                                 <p class="text-gray-500">Gestão Integrada de Atendimentos</p>
                             </div>
                             <form id="login-form">
@@ -497,20 +443,17 @@
                                 </button>
                             </form>
                             <div class="mt-4 text-center">
-                                <a href="#forgot-password" id="forgot-password-link" class="text-sm text-emerald-600 hover:text-emerald-800">Esqueceu a senha?</a>
+                                <a href="#forgot-password" class="text-sm text-emerald-600 hover:text-emerald-800">Esqueceu a senha?</a>
                             </div>
-                            ${!isAdminCreated ? `
-                            <div class="mt-4 text-center">
-                                <p class="text-sm text-gray-600">Primeiro acesso? 
-                                    <a href="#register-admin" id="register-admin-link" class="font-bold text-emerald-600 hover:text-emerald-800">Cadastre-se como Administrador</a>
-                                </p>
+                            <div id="register-link-container" class="mt-4 text-center h-8 flex items-center justify-center">
+                                <div class="spinner-small"></div>
                             </div>
-                            ` : ''}
                         </div>
                     </div>
                 `;
             },
-            attachEvents() {
+            async attachEvents() {
+                // Anexa o evento de submit do formulário de login
                 const form = document.getElementById('login-form');
                 if (form) {
                     form.addEventListener('submit', async (e) => {
@@ -525,12 +468,37 @@
                                 Utils.showToast('A sua conta está desativada. Contacte o administrador.', 'error');
                             } else {
                                 Utils.showToast('Login bem-sucedido!', 'success');
-                                // A navegação ocorrerá pelo onAuthStateChanged
                             }
                         } catch (error) {
                             Utils.showToast('Email ou senha inválidos.', 'error');
                         }
                     });
+                }
+                
+                // *** CORREÇÃO IMPORTANTE ***
+                // Chama a Cloud Function de forma segura para verificar se o link de registo deve aparecer
+                const container = document.getElementById('register-link-container');
+                try {
+                    const checkAdminFunction = httpsCallable(functions, 'checkAdminExists');
+                    const result = await checkAdminFunction();
+                    const isAdminCreated = result.data.adminExists;
+
+                    if (container) {
+                        if (!isAdminCreated) {
+                            container.innerHTML = `
+                                <p class="text-sm text-gray-600">Primeiro acesso? 
+                                    <a href="#register-admin" class="font-bold text-emerald-600 hover:text-emerald-800">Cadastre-se como Administrador</a>
+                                </p>
+                            `;
+                        } else {
+                            container.innerHTML = ''; // Limpa o spinner se o admin já existe
+                        }
+                    }
+                } catch (e) {
+                    console.error("Erro ao verificar admin:", e);
+                    if (container) {
+                        container.innerHTML = `<p class="text-xs text-red-500">Não foi possível verificar o estado do sistema.</p>`;
+                    }
                 }
             }
         };
@@ -540,15 +508,16 @@
         // -----------------------------------------------------------------------------------
         const RegisterAdminPage = {
             async render() {
-                // Medida de segurança: só renderiza se não houver admin
-                 try {
+                let isAdminCreated = true;
+                try {
                     const checkAdminFunction = httpsCallable(functions, 'checkAdminExists');
                     const result = await checkAdminFunction();
-                    if (result.data.adminExists) {
-                        Router.navigate('#login');
-                        return Utils.renderSpinner();
-                    }
+                    isAdminCreated = result.data.adminExists;
                 } catch (e) {
+                    console.error("Erro ao verificar admin:", e);
+                }
+
+                if (isAdminCreated) {
                     Router.navigate('#login');
                     return Utils.renderSpinner();
                 }
@@ -664,12 +633,8 @@
             }
         };
 
-        // ... (O resto do código permanece igual ao da versão anterior) ...
+        // ... (O resto do código permanece igual) ...
         // ... (ForgotPasswordPage, AppShell, WelcomeDashboardPage, etc.) ...
-
-        // O código restante da aplicação é o mesmo da versão anterior.
-        // Apenas as páginas de Login e Registo de Admin foram ligeiramente alteradas
-        // para usar a nova Cloud Function, tornando a aplicação mais segura e robusta.
         
         // -----------------------------------------------------------------------------------
         // Página de Recuperação de Senha
@@ -741,7 +706,7 @@
                         <!-- Sidebar de Navegação -->
                         <aside class="w-64 bg-gray-800 text-white flex flex-col hidden md:flex">
                             <div class="h-20 flex items-center justify-center border-b border-gray-700">
-                                <i class="fas fa-hands-helping text-3xl text-emerald-400 mr-3"></i>
+                                <img src="./icons/icon-192x192.png" alt="SUAS App Logo" class="w-10 h-10 mr-3">
                                 <span class="text-2xl font-bold">SUAS App</span>
                             </div>
                             <nav class="flex-1 px-4 py-4 space-y-2">
@@ -2093,7 +2058,6 @@
         
         // ===================================================================================
         // ROUTER - Gestor de Navegação
-        // Responsável por renderizar a página correta com base no URL hash.
         // ===================================================================================
         const Router = {
             pages: {
