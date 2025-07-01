@@ -155,7 +155,7 @@
         // CONFIGURAÇÃO DO FIREBASE (NÃO ALTERAR)
         // ===================================================================================
         // As variáveis __firebase_config e __initial_auth_token serão fornecidas pelo ambiente.
-      const firebaseConfig = {
+       const firebaseConfig = {
   apiKey: "AIzaSyCTXfhBbiXtOYtWnketVqk3mXdCHgpv0mY",
   authDomain: "suas-app-ga.firebaseapp.com",
   projectId: "suas-app-ga",
@@ -168,7 +168,7 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const functions = getFunctions(app);
+        const functions = getFunctions(app, 'southamerica-east1'); // Especifique a região se necessário
 
         // ===================================================================================
         // ESTADO GLOBAL DA APLICAÇÃO (Single Source of Truth)
@@ -277,13 +277,6 @@
                 const docRef = doc(db, "users", uid);
                 const docSnap = await getDoc(docRef);
                 return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
-            },
-
-            // Verifica se existe um administrador
-            async adminExists() {
-                const q = query(collection(db, "users"), where("role", "==", "admin"));
-                const querySnapshot = await getDocs(q);
-                return !querySnapshot.empty;
             },
             
             // Adiciona um novo atendimento
@@ -469,7 +462,19 @@
         // -----------------------------------------------------------------------------------
         const LoginPage = {
             async render() {
-                const isAdminCreated = await FirebaseService.adminExists();
+                // *** ALTERAÇÃO IMPORTANTE ***
+                // Chama a Cloud Function para verificar se existe um admin.
+                // Isto evita o erro de permissão, pois a função executa no servidor.
+                let isAdminCreated = true; // Assume que existe para evitar mostrar o link por defeito
+                try {
+                    const checkAdminFunction = httpsCallable(functions, 'checkAdminExists');
+                    const result = await checkAdminFunction();
+                    isAdminCreated = result.data.adminExists;
+                } catch (e) {
+                    console.error("Erro ao verificar admin:", e);
+                    Utils.showToast("Não foi possível verificar o estado do sistema. Tente novamente.", "error");
+                }
+
                 return `
                     <div class="min-h-screen flex items-center justify-center bg-gray-100">
                         <div class="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
@@ -536,8 +541,14 @@
         const RegisterAdminPage = {
             async render() {
                 // Medida de segurança: só renderiza se não houver admin
-                const isAdminCreated = await FirebaseService.adminExists();
-                if (isAdminCreated) {
+                 try {
+                    const checkAdminFunction = httpsCallable(functions, 'checkAdminExists');
+                    const result = await checkAdminFunction();
+                    if (result.data.adminExists) {
+                        Router.navigate('#login');
+                        return Utils.renderSpinner();
+                    }
+                } catch (e) {
                     Router.navigate('#login');
                     return Utils.renderSpinner();
                 }
@@ -606,12 +617,9 @@
                         }
 
                         try {
-                             // Numa aplicação real, a criação do primeiro admin poderia ser um processo especial.
-                             // Aqui, usamos o fluxo padrão, mas garantimos que só acontece uma vez.
                             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                             const uid = userCredential.user.uid;
                             
-                            // Cria o perfil no Firestore
                             await setDoc(doc(db, "users", uid), {
                                 name: name,
                                 email: email,
@@ -656,6 +664,13 @@
             }
         };
 
+        // ... (O resto do código permanece igual ao da versão anterior) ...
+        // ... (ForgotPasswordPage, AppShell, WelcomeDashboardPage, etc.) ...
+
+        // O código restante da aplicação é o mesmo da versão anterior.
+        // Apenas as páginas de Login e Registo de Admin foram ligeiramente alteradas
+        // para usar a nova Cloud Function, tornando a aplicação mais segura e robusta.
+        
         // -----------------------------------------------------------------------------------
         // Página de Recuperação de Senha
         // -----------------------------------------------------------------------------------
@@ -2176,7 +2191,7 @@
                 // Registo do Service Worker para PWA
                 if ('serviceWorker' in navigator) {
                     try {
-                        await navigator.serviceWorker.register('service-worker.js');
+                        await navigator.serviceWorker.register('./service-worker.js');
                         console.log('Service Worker registado com sucesso.');
                     } catch (error) {
                         console.error('Falha ao registar Service Worker:', error);
